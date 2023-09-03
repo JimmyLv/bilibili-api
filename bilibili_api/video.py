@@ -150,7 +150,7 @@ class Video:
         if bvid is not None:
             self.set_bvid(bvid)
         elif aid is not None:
-            self.set_aid(aid)
+            self.set_aid(int(aid))
         else:
             # 未提供任一 ID
             raise ArgsException("请至少提供 bvid 和 aid 中的其中一个参数。")
