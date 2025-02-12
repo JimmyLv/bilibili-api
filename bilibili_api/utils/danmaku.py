@@ -61,40 +61,40 @@ class Danmaku:
         uid: int = -1,
     ):
         """
-        Args:
-            (self.)text      (str)                             : 弹幕文本。
-
-            (self.)dm_time   (float, optional)                 : 弹幕在视频中的位置，单位为秒。Defaults to 0.0.
-
-            (self.)send_time (float, optional)                 : 弹幕发送的时间。Defaults to time.time().
-
-            (self.)crc32_id  (str, optional)                   : 弹幕发送者 UID 经 CRC32 算法取摘要后的值。Defaults to "".
-
-            (self.)color     (str, optional)                   : 弹幕十六进制颜色。Defaults to "ffffff" (如果为大会员专属的颜色则为"special").
-
-            (self.)weight    (int, optional)                   : 弹幕在弹幕列表显示的权重。Defaults to -1.
-
-            (self.)id_       (int, optional)                   : 弹幕 ID。Defaults to -1.
-
-            (self.)id_str    (str, optional)                   : 弹幕字符串 ID。Defaults to "".
-
-            (self.)action    (str, optional)                   : 暂不清楚。Defaults to "".
-
-            (self.)mode      (Union[DmMode, int], optional)    : 弹幕模式。Defaults to Mode.FLY.
-
-            (self.)font_size (Union[DmFontSize, int], optional): 弹幕字体大小。Defaults to FontSize.NORMAL.
-
-            (self.)is_sub    (bool, optional)                  : 是否为字幕弹幕。Defaults to False.
-
-            (self.)pool      (int, optional)                   : 池。Defaults to 0.
-
-            (self.)attr      (int, optional)                   : 暂不清楚。 Defaults to -1.
-
-            (self.)uid       (int, optional)                   : 弹幕发送者 UID。Defaults to -1.
-
         大会员专属颜色文字填充：http://i0.hdslb.com/bfs/dm/9dcd329e617035b45d2041ac889c49cb5edd3e44.png
 
         大会员专属颜色背景填充：http://i0.hdslb.com/bfs/dm/ba8e32ae03a0a3f70f4e51975a965a9ddce39d50.png
+
+        Args:
+            text      (str)                             : 弹幕文本。
+
+            dm_time   (float, optional)                 : 弹幕在视频中的位置，单位为秒。Defaults to 0.0.
+
+            send_time (float, optional)                 : 弹幕发送的时间。Defaults to time.time().
+
+            crc32_id  (str, optional)                   : 弹幕发送者 UID 经 CRC32 算法取摘要后的值。Defaults to "".
+
+            color     (str, optional)                   : 弹幕十六进制颜色。Defaults to "ffffff" (如果为大会员专属的颜色则为"special").
+
+            weight    (int, optional)                   : 弹幕在弹幕列表显示的权重。Defaults to -1.
+
+            id_       (int, optional)                   : 弹幕 ID。Defaults to -1.
+
+            id_str    (str, optional)                   : 弹幕字符串 ID。Defaults to "".
+
+            action    (str, optional)                   : 暂不清楚。Defaults to "".
+
+            mode      (Union[DmMode, int], optional)    : 弹幕模式。Defaults to Mode.FLY.
+
+            font_size (Union[DmFontSize, int], optional): 弹幕字体大小。Defaults to FontSize.NORMAL.
+
+            is_sub    (bool, optional)                  : 是否为字幕弹幕。Defaults to False.
+
+            pool      (int, optional)                   : 池。Defaults to 0.
+
+            attr      (int, optional)                   : 暂不清楚。 Defaults to -1.
+
+            uid       (int, optional)                   : 弹幕发送者 UID。Defaults to -1.
         """
         self.text = text
         self.dm_time = dm_time
@@ -141,6 +141,9 @@ class Danmaku:
     def to_xml(self):
         """
         将弹幕转换为 xml 格式弹幕
+
+        Returns:
+            str: xml
         """
         txt = self.text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         string = f'<d p="{self.dm_time},{self.mode},{self.font_size},{int(self.color, 16)},{self.send_time},{self.pool},{self.crc32_id},{self.id_},11">{txt}</d>'
@@ -158,15 +161,15 @@ class SpecialDanmaku:
     ):
         """
         Args:
-            (self.)content (str)               : 弹幕内容
+            content (str)               : 弹幕内容
 
-            (self.)id_     (int)               : 弹幕 id. Defaults to -1.
+            id_     (int)               : 弹幕 id. Defaults to -1.
 
-            (self.)id_str  (str)               : 弹幕 id (string 类型). Defaults to "".
+            id_str  (str)               : 弹幕 id (string 类型). Defaults to "".
 
-            (self.)mode    (Union[DmMode, int]): 弹幕类型. Defaults to DmMode.SPECIAL.
+            mode    (Union[DmMode, int]): 弹幕类型. Defaults to DmMode.SPECIAL.
 
-            (self.)pool    (int)               : 弹幕池. Defaults to 2.
+            pool    (int)               : 弹幕池. Defaults to 2.
         """
         self.content = content
         self.id_ = id_

@@ -7,28 +7,24 @@ bilibili_api.video
 """
 
 import re
+import os
 import json
 import struct
 import asyncio
 import logging
 import datetime
 from enum import Enum
-from inspect import isfunction
+from inspect import iscoroutine, isfunction
 from functools import cmp_to_key
 from dataclasses import dataclass
-from typing import Any, List, Union
+from typing import Any, List, Union, Optional
 
-import httpx
-import aiohttp
-
-from . import settings
 from .utils.aid_bvid_transformer import bvid2aid, aid2bvid
 from .utils.utils import get_api
 from .utils.AsyncEvent import AsyncEvent
-from .utils.credential import Credential
 from .utils.BytesReader import BytesReader
 from .utils.danmaku import Danmaku, SpecialDanmaku
-from .utils.network import get_aiohttp_session, Api, get_session
+from .utils.network import Credential, Api, get_client, BiliWsMsgType
 from .exceptions import (
     ArgsException,
     NetworkException,
@@ -82,12 +78,20 @@ class VideoAppealReasonType:
     - CLICKBAIT(): 不良封面/标题
     - POLITICAL_RUMORS(): 涉政谣言
     - SOCIAL_RUMORS(): 涉社会事件谣言
-    - COVID_RUMORS(): 疫情谣言
     - UNREAL_EVENT(): 虚假不实消息
     - OTHER(): 有其他问题
     - LEAD_WAR(): 引战
     - CANNOT_CHARGE(): 不能参加充电
     - UNREAL_COPYRIGHT(source: str): 转载/自制类型错误
+    - ILLEGAL_POPULARIZE(): 违规推广
+    - ILLEGAL_OTHER(): 其他不规范行为
+    - DANGEROUS(): 危险行为
+    - OTHER_NEW(): 其他
+    - COOPERATE_INFRINGEMENT(): 企业商誉侵权
+    - INFRINGEMENT(): 侵权申诉
+    - VIDEO_INFRINGEMENT(): 盗搬稿件-路人举报
+    - DISCOMFORT(): 观感不适
+    - ILLEGAL_URL(): 违法信息外链
     """
 
     ILLEGAL = lambda: 2
@@ -100,11 +104,19 @@ class VideoAppealReasonType:
     CLICKBAIT = lambda: 10013
     POLITICAL_RUMORS = lambda: 10014
     SOCIAL_RUMORS = lambda: 10015
-    COVID_RUMORS = lambda: 10016
     UNREAL_EVENT = lambda: 10017
     OTHER = lambda: 1
     LEAD_WAR = lambda: 9
     CANNOT_CHARGE = lambda: 10
+    ILLEGAL_POPULARIZE = lambda: 10018
+    ILLEGAL_OTHER = lambda: 10019
+    DANGEROUS = lambda: 10020
+    OTHER_NEW = lambda: 10022
+    COOPERATE_INFRINGEMENT = lambda: 10023
+    INFRINGEMENT = lambda: 10024
+    VIDEO_INFRINGEMENT = lambda: 10026
+    DISCOMFORT = lambda: 10021
+    ILLEGAL_URL = lambda: 10025
 
     @staticmethod
     def PLAGIARISM(bvid: str):
@@ -170,7 +182,9 @@ class Video:
         """
         # 检查 bvid 是否有效
         if not re.search("^BV[a-zA-Z0-9]{10}$", bvid):
-            raise ArgsException("bvid 提供错误，必须是以 BV 开头的纯字母和数字组成的 12 位字符串（大小写敏感）。")
+            raise ArgsException(
+                "bvid 提供错误，必须是以 BV 开头的纯字母和数字组成的 12 位字符串（大小写敏感）。"
+            )
         self.__bvid = bvid
         self.__aid = bvid2aid(bvid)
 
@@ -205,6 +219,18 @@ class Video:
         """
         return self.__aid
 
+    async def __get_bvid(self) -> str:
+        res = self.get_bvid()
+        if iscoroutine(res):
+            return await res
+        return res
+
+    async def __get_aid(self) -> str:
+        res = self.get_aid()
+        if iscoroutine(res):
+            return await res
+        return res
+
     async def get_info(self) -> dict:
         """
         获取视频信息。
@@ -213,7 +239,7 @@ class Video:
             dict: 调用 API 返回的结果。
         """
         api = API["info"]["info"]
-        params = {"bvid": self.get_bvid(), "aid": self.get_aid()}
+        params = {"bvid": await self.__get_bvid(), "aid": await self.__get_aid()}
         resp = (
             await Api(**api, credential=self.credential).update_params(**params).result
         )
@@ -230,8 +256,8 @@ class Video:
         """
         api = API["info"]["detail"]
         params = {
-            "bvid": self.get_bvid(),
-            "aid": self.get_aid(),
+            "bvid": await self.__get_bvid(),
+            "aid": await self.__get_aid(),
             "need_operation_card": 0,
             "need_elec": 0,
         }
@@ -259,8 +285,18 @@ class Video:
     #         dict: 调用 API 返回的结果。
     #     """
     #     api = API["info"]["stat"]
-    #     params = {"bvid": self.get_bvid(), "aid": self.get_aid()}
+    #     params = {"bvid": await self.__get_bvid(), "aid": await self.__get_aid()}
     #     return await Api(**api, credential=self.credential).update_params(**params).result
+
+    async def get_up_mid(self) -> int:
+        """
+        获取视频 up 主的 mid。
+
+        Returns:
+            int: up_mid
+        """
+        info = await self.__get_info_cached()
+        return info["owner"]["mid"]
 
     async def get_tags(
         self, page_index: Union[int, None] = 0, cid: Union[int, None] = None
@@ -282,7 +318,11 @@ class Video:
 
             cid = await self.get_cid(page_index=page_index)
         api = API["info"]["tags"]
-        params = {"bvid": self.get_bvid(), "aid": self.get_aid(), "cid": cid}
+        params = {
+            "bvid": await self.__get_bvid(),
+            "aid": await self.__get_aid(),
+            "cid": cid,
+        }
         return (
             await Api(**api, credential=self.credential).update_params(**params).result
         )
@@ -297,7 +337,11 @@ class Video:
         info = await self.__get_info_cached()
         mid = info["owner"]["mid"]
         api = API["info"]["chargers"]
-        params = {"aid": self.get_aid(), "bvid": self.get_bvid(), "mid": mid}
+        params = {
+            "aid": await self.__get_aid(),
+            "bvid": await self.__get_bvid(),
+            "mid": mid,
+        }
         return (
             await Api(**api, credential=self.credential).update_params(**params).result
         )
@@ -310,20 +354,20 @@ class Video:
             dict: 调用 API 返回的结果。
         """
         api = API["info"]["pages"]
-        params = {"aid": self.get_aid(), "bvid": self.get_bvid()}
+        params = {"aid": await self.__get_aid(), "bvid": await self.__get_bvid()}
         return (
             await Api(**api, credential=self.credential).update_params(**params).result
         )
 
-    async def __get_page_id_by_index(self, page_index: int) -> int:
+    async def __get_cid_by_index(self, page_index: int) -> int:
         """
-        根据分 p 号获取 page_id。
+        根据分 p 号获取 cid。
 
         Args:
             page_index (int):   分 P 号，从 0 开始。
 
         Returns:
-            int: 分 P 的唯一 ID。
+            int: cid 分 P 的唯一 ID。
         """
         if page_index < 0:
             raise ArgsException("分 p 号必须大于或等于 0。")
@@ -357,11 +401,11 @@ class Video:
         Returns:
             dict: 调用 API 返回的结果,数据中 Url 没有 http 头
         """
-        params: dict[str, Any] = {"aid": self.get_aid()}
+        params: dict[str, Any] = {"aid": await self.__get_aid()}
         if pvideo:
             api = API["info"]["video_snapshot_pvideo"]
         else:
-            params["bvid"] = self.get_bvid()
+            params["bvid"] = await self.__get_bvid()
             if json_index:
                 params["index"] = 1
             if cid:
@@ -381,13 +425,12 @@ class Video:
         Returns:
             int: cid
         """
-        return await self.__get_page_id_by_index(page_index)
+        return await self.__get_cid_by_index(page_index)
 
     async def get_download_url(
         self,
         page_index: Union[int, None] = None,
         cid: Union[int, None] = None,
-        html5: bool = False,
     ) -> dict:
         """
         获取视频下载信息。
@@ -401,8 +444,6 @@ class Video:
 
             cid        (int | None, optional) : 分 P 的 ID。Defaults to None
 
-            html5      (bool, optional): 是否以 html5 平台访问，这样子能直接在网页中播放，但是链接少。
-
         Returns:
             dict: 调用 API 返回的结果。
         """
@@ -410,33 +451,30 @@ class Video:
             if page_index is None:
                 raise ArgsException("page_index 和 cid 至少提供一个。")
 
-            cid = await self.__get_page_id_by_index(page_index)
+            cid = await self.__get_cid_by_index(page_index)
 
         api = API["info"]["playurl"]
-        if html5:
-            params = {
-                "avid": self.get_aid(),
-                "cid": cid,
-                "qn": "127",
-                "otype": "json",
-                "fnval": 4048,
-                "fourk": 1,
-                "platform": "html5",
-            }
-        else:
-            params = {
-                "avid": self.get_aid(),
-                "cid": cid,
-                "qn": "127",
-                "otype": "json",
-                "fnval": 4048,
-                "fourk": 1,
-            }
-        result = (
-            await Api(**api, credential=self.credential).update_params(**params).result
+        params = {
+            "avid": await self.__get_aid(),
+            "bvid": await self.__get_bvid(),
+            "cid": cid,
+            "qn": "127",
+            "fnver": 0,
+            "fnval": 4048,
+            "fourk": 1,
+            "gaia_source": "",
+            "from_client": "BROWSER",
+            "is_main_page": "false",
+            "need_fragment": "false",
+            "isGaiaAvoided": "true",
+            "web_location": 1315873,
+            "voice_balance": 1,
+        }
+        return (
+            await Api(**api, credential=self.credential, wbi=True)
+            .update_params(**params)
+            .result
         )
-        result.update({"is_html5": True} if html5 else {})
-        return result
 
     async def get_related(self) -> dict:
         """
@@ -446,7 +484,21 @@ class Video:
             dict: 调用 API 返回的结果。
         """
         api = API["info"]["related"]
-        params = {"aid": self.get_aid(), "bvid": self.get_bvid()}
+        params = {"aid": await self.__get_aid(), "bvid": await self.__get_bvid()}
+        return (
+            await Api(**api, credential=self.credential).update_params(**params).result
+        )
+
+    async def get_relation(self) -> dict:
+        """
+        获取用户与视频的关系
+
+        Returns:
+            dict: 调用 API 返回的结果。
+        """
+        self.credential.raise_for_no_sessdata()
+        api = API["info"]["relation"]
+        params = {"aid": await self.__get_aid(), "bvid": await self.__get_bvid()}
         return (
             await Api(**api, credential=self.credential).update_params(**params).result
         )
@@ -461,7 +513,7 @@ class Video:
         self.credential.raise_for_no_sessdata()
 
         api = API["info"]["has_liked"]
-        params = {"bvid": self.get_bvid(), "aid": self.get_aid()}
+        params = {"bvid": await self.__get_bvid(), "aid": await self.__get_aid()}
         return (
             await Api(**api, credential=self.credential).update_params(**params).result
         )
@@ -476,7 +528,7 @@ class Video:
         self.credential.raise_for_no_sessdata()
 
         api = API["info"]["get_pay_coins"]
-        params = {"bvid": self.get_bvid(), "aid": self.get_aid()}
+        params = {"bvid": await self.__get_bvid(), "aid": await self.__get_aid()}
         return (
             await Api(**api, credential=self.credential).update_params(**params).result
         )["multiply"]
@@ -491,7 +543,7 @@ class Video:
         self.credential.raise_for_no_sessdata()
 
         api = API["info"]["has_favoured"]
-        params = {"bvid": self.get_bvid(), "aid": self.get_aid()}
+        params = {"bvid": await self.__get_bvid(), "aid": await self.__get_aid()}
         return (
             await Api(**api, credential=self.credential).update_params(**params).result
         )["favoured"]
@@ -504,7 +556,7 @@ class Video:
             bool: 是否禁止笔记。
         """
         api = API["info"]["is_forbid"]
-        params = {"aid": self.get_aid()}
+        params = {"aid": await self.__get_aid()}
         return (
             await Api(**api, credential=self.credential).update_params(**params).result
         )["forbid_note_entrance"]
@@ -519,7 +571,7 @@ class Video:
         self.credential.raise_for_no_sessdata()
 
         api = API["info"]["private_notes"]
-        params = {"oid": self.get_aid(), "oid_type": 0}
+        params = {"oid": await self.__get_aid(), "oid_type": 0}
         return (
             await Api(**api, credential=self.credential).update_params(**params).result
         )["noteIds"]
@@ -538,7 +590,46 @@ class Video:
         """
 
         api = API["info"]["public_notes"]
-        params = {"oid": self.get_aid(), "oid_type": 0, "pn": pn, "ps": ps}
+        params = {"oid": await self.__get_aid(), "oid_type": 0, "pn": pn, "ps": ps}
+        return (
+            await Api(**api, credential=self.credential).update_params(**params).result
+        )
+
+    async def get_ai_conclusion(
+        self,
+        cid: Optional[int] = None,
+        page_index: Optional[int] = None,
+        up_mid: Optional[int] = None,
+    ) -> dict:
+        """
+        获取稿件 AI 总结结果。
+
+        cid 和 page_index 至少提供其中一个，其中 cid 优先级最高
+
+        Args:
+            cid (Optional, int): 分 P 的 cid。
+
+            page_index (Optional, int): 分 P 号，从 0 开始。
+
+            up_mid (Optional, int): up 主的 mid。
+
+        Returns:
+            dict: 调用 API 返回的结果。
+        """
+        if cid is None:
+            if page_index is None:
+                raise ArgsException("page_index 和 cid 至少提供一个。")
+
+            cid = await self.__get_cid_by_index(page_index)
+
+        api = API["info"]["ai_conclusion"]
+        params = {
+            "aid": await self.__get_aid(),
+            "bvid": await self.__get_bvid(),
+            "cid": cid,
+            "up_mid": await self.get_up_mid() if up_mid is None else up_mid,
+            "web_location": "333.788",
+        }
         return (
             await Api(**api, credential=self.credential).update_params(**params).result
         )
@@ -561,26 +652,20 @@ class Video:
             if page_index is None:
                 raise ArgsException("page_index 和 cid 至少提供一个。")
 
-            cid = await self.__get_page_id_by_index(page_index)
+            cid = await self.__get_cid_by_index(page_index)
 
-        session = get_session()
         api = API["danmaku"]["view"]
-
-        config = {}
-        config["url"] = api["url"]
-        config["params"] = {"type": 1, "oid": cid, "pid": self.get_aid()}
-        config["cookies"] = self.credential.get_cookies()
-        config["headers"] = {
-            "Referer": "https://www.bilibili.com",
-            "User-Agent": "Mozilla/5.0",
-        }
+        params = {"type": 1, "oid": cid, "pid": await self.__get_aid()}
 
         try:
-            resp = await session.get(**config)
+            resp_data = (
+                await Api(**api, credential=self.credential)
+                .update_params(**params)
+                .request(byte=True)
+            )
         except Exception as e:
             raise NetworkException(-1, str(e))
 
-        resp_data = resp.read()
         json_data = {}
         reader = BytesReader(resp_data)
 
@@ -649,7 +734,6 @@ class Video:
             data = {}
             while not reader_.has_end():
                 t = reader_.varint() >> 3
-
                 if t == 1:
                     data["dm_switch"] = reader_.bool()
                 elif t == 2:
@@ -690,6 +774,12 @@ class Video:
                     data["font_border"] = reader_.varint()
                 elif t == 20:
                     data["draw_type"] = reader_.string()
+                elif t == 22 or t == 24 or t == 26:
+                    reader_.bool()
+                elif t == 25:
+                    reader_.varint()
+                elif t == 23:
+                    reader_.bytes_string()
                 else:
                     continue
             return data
@@ -725,7 +815,6 @@ class Video:
 
         while not reader.has_end():
             type_ = reader.varint() >> 3
-
             if type_ == 1:
                 json_data["state"] = reader.varint()
             elif type_ == 2:
@@ -763,6 +852,8 @@ class Video:
         page_index: int = 0,
         date: Union[datetime.date, None] = None,
         cid: Union[int, None] = None,
+        from_seg: Union[int, None] = None,
+        to_seg: Union[int, None] = None,
     ) -> List[Danmaku]:
         """
         获取弹幕。
@@ -774,8 +865,17 @@ class Video:
 
             cid        (int | None, optional): 分 P 的 ID。Defaults to None
 
+            from_seg (int, optional): 从第几段开始(0 开始编号，None 为从第一段开始，一段 6 分钟). Defaults to None.
+
+            to_seg (int, optional): 到第几段结束(0 开始编号，None 为到最后一段，包含编号的段，一段 6 分钟). Defaults to None.
+
         Returns:
             List[Danmaku]: Danmaku 类的列表。
+
+        注意：
+            - 1. 段数可以通过视频时长计算。6分钟为一段。
+            - 2. `from_seg` 和 `to_seg` 仅对 `date == None` 的时候有效果。
+            - 3. 例：取前 `12` 分钟的弹幕：`from_seg=0, to_seg=1`
         """
         if date is not None:
             self.credential.raise_for_no_sessdata()
@@ -784,52 +884,41 @@ class Video:
             if page_index is None:
                 raise ArgsException("page_index 和 cid 至少提供一个。")
 
-            cid = await self.__get_page_id_by_index(page_index)
+            cid = await self.__get_cid_by_index(page_index)
 
-        session = get_session()
-        aid = self.get_aid()
+        aid = await self.__get_aid()
         params: dict[str, Any] = {"oid": cid, "type": 1, "pid": aid}
         if date is not None:
             # 获取历史弹幕
             api = API["danmaku"]["get_history_danmaku"]
             params["date"] = date.strftime("%Y-%m-%d")
             params["type"] = 1
-            all_seg = 1
+            from_seg = to_seg = 0
         else:
             api = API["danmaku"]["get_danmaku"]
-            view = await self.get_danmaku_view(cid=cid)
-            all_seg = view["dm_seg"]["total"]
+            if from_seg == None:
+                from_seg = 0
+            if to_seg == None:
+                info = await self.__get_info_cached()
+                for p in info["pages"]:
+                    if p["cid"] == cid:
+                        to_seg = p["duration"] // 360 + 1
 
         danmakus = []
 
-        for seg in range(all_seg):
+        for seg in range(from_seg, to_seg + 1):
             if date is None:
                 # 仅当获取当前弹幕时需要该参数
                 params["segment_index"] = seg + 1
-
-            config = {}
-            config["url"] = api["url"]
-            config["params"] = params
-            config["headers"] = {
-                "Referer": "https://www.bilibili.com",
-                "User-Agent": "Mozilla/5.0",
-            }
-            config["cookies"] = self.credential.get_cookies()
-
             try:
-                req = await session.get(**config)
+                data = (
+                    await Api(**api, credential=self.credential)
+                    .update_params(**params)
+                    .request(byte=True)
+                )
             except Exception as e:
                 raise NetworkException(-1, str(e))
 
-            if "content-type" not in req.headers.keys():
-                break
-            else:
-                content_type = req.headers["content-type"]
-                if content_type != "application/octet-stream":
-                    raise ResponseException("返回数据类型错误：")
-
-            # 解析二进制流数据
-            data = req.read()
             if data == b"\x10\x01":
                 # 视频弹幕被关闭
                 raise DanmakuClosedException()
@@ -884,7 +973,7 @@ class Video:
                     elif data_type == 9:
                         dm.weight = dm_reader.varint()
                     elif data_type == 10:
-                        dm.action = str(dm_reader.varint())
+                        dm.action = str(dm_reader.string())
                     elif data_type == 11:
                         dm.pool = dm_reader.varint()
                     elif data_type == 12:
@@ -899,6 +988,12 @@ class Video:
                         dm_reader.bytes_string()
                     elif data_type == 21:
                         dm_reader.bytes_string()
+                    elif data_type == 22:
+                        dm_reader.bytes_string()
+                    elif data_type == 25:
+                        dm_reader.varint()
+                    elif data_type == 26:
+                        dm_reader.varint()
                     else:
                         break
                 danmakus.append(dm)
@@ -922,48 +1017,47 @@ class Video:
             if page_index is None:
                 raise ArgsException("page_index 和 cid 至少提供一个。")
 
-            cid = await self.__get_page_id_by_index(page_index)
+            cid = await self.__get_cid_by_index(page_index)
 
         view = await self.get_danmaku_view(cid=cid)
-        special_dms = view["special_dms"][0]
-        if settings.proxy != "":
-            sess = httpx.AsyncClient(proxies={"all://": settings.proxy})
-        else:
-            sess = httpx.AsyncClient()
-        dm_content = await sess.get(special_dms, cookies=self.credential.get_cookies())
-        dm_content.raise_for_status()
-        reader = BytesReader(dm_content.content)
+        if not view.get("special_dms"):
+            return []
         dms: List[SpecialDanmaku] = []
-        while not reader.has_end():
-            spec_dm = SpecialDanmaku("")
-            type_ = reader.varint() >> 3
-            if type_ == 1:
-                reader_ = BytesReader(reader.bytes_string())
-                while not reader_.has_end():
-                    type__ = reader_.varint() >> 3
-                    if type__ == 1:
-                        spec_dm.id_ = reader_.varint()
-                    elif type__ == 3:
-                        spec_dm.mode = reader_.varint()
-                    elif type__ == 4:
-                        reader_.varint()
-                    elif type__ == 5:
-                        reader_.varint()
-                    elif type__ == 6:
-                        reader_.string()
-                    elif type__ == 7:
-                        spec_dm.content = reader_.string()
-                    elif type__ == 8:
-                        reader_.varint()
-                    elif type__ == 11:
-                        spec_dm.pool = reader_.varint()
-                    elif type__ == 12:
-                        spec_dm.id_str = reader_.string()
-                    else:
-                        continue
-            else:
-                continue
-            dms.append(spec_dm)
+        for special_dms in view["special_dms"]:
+            dm_content = await Api(
+                url=special_dms, method="GET", credential=self.credential
+            ).request(byte=True)
+            reader = BytesReader(dm_content)
+            while not reader.has_end():
+                spec_dm = SpecialDanmaku("")
+                type_ = reader.varint() >> 3
+                if type_ == 1:
+                    reader_ = BytesReader(reader.bytes_string())
+                    while not reader_.has_end():
+                        type__ = reader_.varint() >> 3
+                        if type__ == 1:
+                            spec_dm.id_ = reader_.varint()
+                        elif type__ == 3:
+                            spec_dm.mode = reader_.varint()
+                        elif type__ == 4:
+                            reader_.varint()
+                        elif type__ == 5:
+                            reader_.varint()
+                        elif type__ == 6:
+                            reader_.string()
+                        elif type__ == 7:
+                            spec_dm.content = reader_.string()
+                        elif type__ == 8:
+                            reader_.varint()
+                        elif type__ == 11:
+                            spec_dm.pool = reader_.varint()
+                        elif type__ == 12:
+                            spec_dm.id_str = reader_.string()
+                        else:
+                            continue
+                else:
+                    continue
+                dms.append(spec_dm)
         return dms
 
     async def get_history_danmaku_index(
@@ -994,7 +1088,7 @@ class Video:
             if page_index is None:
                 raise ArgsException("page_index 和 cid 至少提供一个。")
 
-            cid = await self.__get_page_id_by_index(page_index)
+            cid = await self.__get_cid_by_index(page_index)
 
         api = API["danmaku"]["get_history_danmaku_index"]
         params = {"oid": cid, "month": date.strftime("%Y-%m"), "type": 1}
@@ -1030,7 +1124,7 @@ class Video:
             if page_index is None:
                 raise ArgsException("page_index 和 cid 至少提供一个。")
 
-            cid = await self.__get_page_id_by_index(page_index)
+            cid = await self.__get_cid_by_index(page_index)
 
         api = API["danmaku"]["has_liked_danmaku"]
         params = {"oid": cid, "ids": ",".join(ids)}  # type: ignore
@@ -1068,7 +1162,7 @@ class Video:
             if page_index is None:
                 raise ArgsException("page_index 和 cid 至少提供一个。")
 
-            cid = await self.__get_page_id_by_index(page_index)
+            cid = await self.__get_cid_by_index(page_index)
 
         api = API["danmaku"]["send_danmaku"]
 
@@ -1080,8 +1174,8 @@ class Video:
             "type": 1,
             "oid": cid,
             "msg": danmaku.text,
-            "aid": self.get_aid(),
-            "bvid": self.get_bvid(),
+            "aid": await self.__get_aid(),
+            "bvid": await self.__get_bvid(),
             "progress": int(danmaku.dm_time * 1000),
             "color": int(danmaku.color, 16),
             "fontsize": danmaku.font_size,
@@ -1103,21 +1197,15 @@ class Video:
             cid        (int | None, optional): cid. Defaults to None.
 
         Return:
-            xml 文件源
+            str: xml 文件源
         """
         if cid is None:
             if page_index is None:
                 raise ArgsException("page_index 和 cid 至少提供一个。")
 
-            cid = await self.__get_page_id_by_index(page_index)
+            cid = await self.__get_cid_by_index(page_index)
         url = f"https://comment.bilibili.com/{cid}.xml"
-        sess = get_session()
-        config: dict[Any, Any] = {"url": url}
-        # 代理
-        if settings.proxy:
-            config["proxies"] = {"all://", settings.proxy}
-        resp = await sess.get(**config)
-        return resp.content.decode("utf-8")
+        return (await Api(url=url, method="GET").request(byte=True)).decode("utf-8")
 
     async def like_danmaku(
         self,
@@ -1151,7 +1239,7 @@ class Video:
             if page_index is None:
                 raise ArgsException("page_index 和 cid 至少提供一个。")
 
-            cid = await self.__get_page_id_by_index(page_index)
+            cid = await self.__get_cid_by_index(page_index)
 
         api = API["danmaku"]["like_danmaku"]
 
@@ -1162,6 +1250,27 @@ class Video:
             "platform": "web_player",
         }
         return await Api(**api, credential=self.credential).update_data(**data).result
+
+    async def get_online(
+        self, cid: Optional[int] = None, page_index: Optional[int] = 0
+    ) -> dict:
+        """
+        获取实时在线人数
+
+        Returns:
+            dict: 调用 API 返回的结果。
+        """
+        api = API["info"]["online"]
+        params = {
+            "aid": await self.__get_aid(),
+            "bvid": await self.__get_bvid(),
+            "cid": (
+                cid if cid is not None else await self.get_cid(page_index=page_index)
+            ),
+        }
+        return (
+            await Api(**api, credential=self.credential).update_params(**params).result
+        )
 
     async def operate_danmaku(
         self,
@@ -1199,7 +1308,7 @@ class Video:
             if page_index is None:
                 raise ArgsException("page_index 和 cid 至少提供一个。")
 
-            cid = await self.__get_page_id_by_index(page_index)
+            cid = await self.__get_cid_by_index(page_index)
 
         api = API["danmaku"]["edit_danmaku"]
 
@@ -1226,7 +1335,7 @@ class Video:
         self.credential.raise_for_no_bili_jct()
 
         api = API["operate"]["like"]
-        data = {"aid": self.get_aid(), "like": 1 if status else 2}
+        data = {"aid": await self.__get_aid(), "like": 1 if status else 2}
         return await Api(**api, credential=self.credential).update_data(**data).result
 
     async def pay_coin(self, num: int = 1, like: bool = False) -> dict:
@@ -1249,8 +1358,8 @@ class Video:
 
         api = API["operate"]["coin"]
         data = {
-            "aid": self.get_aid(),
-            "bvid": self.get_bvid(),
+            "aid": await self.__get_aid(),
+            "bvid": await self.__get_bvid(),
             "multiply": num,
             "like": 1 if like else 0,
         }
@@ -1265,8 +1374,8 @@ class Video:
         """
         api = API["operate"]["share"]
         data = {
-            "bvid": self.get_bvid(),
-            "aid": self.get_aid(),
+            "bvid": await self.__get_bvid(),
+            "aid": await self.__get_aid(),
             "csrf": self.credential.bili_jct,
         }
         return await Api(**api, credential=self.credential).update_data(**data).result
@@ -1279,7 +1388,7 @@ class Video:
             dict: 调用 API 返回的结果
         """
         api = API["operate"]["yjsl"]
-        data = {"bvid": self.get_bvid(), "aid": self.get_aid()}
+        data = {"bvid": await self.__get_bvid(), "aid": await self.__get_aid()}
         return await Api(**api, credential=self.credential).update_data(**data).result
 
     async def add_tag(self, name: str) -> dict:
@@ -1296,7 +1405,11 @@ class Video:
         self.credential.raise_for_no_bili_jct()
 
         api = API["operate"]["add_tag"]
-        data = {"aid": self.get_aid(), "bvid": self.get_bvid(), "tag_name": name}
+        data = {
+            "aid": await self.__get_aid(),
+            "bvid": await self.__get_bvid(),
+            "tag_name": name,
+        }
         return await Api(**api, credential=self.credential).update_data(**data).result
 
     async def delete_tag(self, tag_id: int) -> dict:
@@ -1314,7 +1427,11 @@ class Video:
 
         api = API["operate"]["del_tag"]
 
-        data = {"tag_id": tag_id, "aid": self.get_aid(), "bvid": self.get_bvid()}
+        data = {
+            "tag_id": tag_id,
+            "aid": await self.__get_aid(),
+            "bvid": await self.__get_bvid(),
+        }
         return await Api(**api, credential=self.credential).update_data(**data).result
 
     async def appeal(self, reason: Any, detail: str):
@@ -1330,7 +1447,7 @@ class Video:
             dict: 调用 API 返回的结果
         """
         api = API["operate"]["appeal"]
-        data = {"aid": self.get_aid(), "desc": detail}
+        data = {"aid": await self.__get_aid(), "desc": detail}
         if isfunction(reason):
             reason = reason()
         if isinstance(reason, int):
@@ -1354,14 +1471,16 @@ class Video:
             dict: 调用 API 返回结果。
         """
         if len(add_media_ids) + len(del_media_ids) == 0:
-            raise ArgsException("对收藏夹无修改。请至少提供 add_media_ids 和 del_media_ids 中的其中一个。")
+            raise ArgsException(
+                "对收藏夹无修改。请至少提供 add_media_ids 和 del_media_ids 中的其中一个。"
+            )
 
         self.credential.raise_for_no_sessdata()
         self.credential.raise_for_no_bili_jct()
 
         api = API["operate"]["favorite"]
         data = {
-            "rid": self.get_aid(),
+            "rid": await self.__get_aid(),
             "type": 2,
             "add_media_ids": ",".join(map(lambda x: str(x), add_media_ids)),
             "del_media_ids": ",".join(map(lambda x: str(x), del_media_ids)),
@@ -1373,13 +1492,13 @@ class Video:
         cid: Union[int, None] = None,
     ) -> dict:
         """
-        获取视频上一次播放的记录，字幕和地区信息。需要分集的 cid, 返回数据中含有json字幕的链接
+        获取字幕信息
 
         Args:
             cid (int | None): 分 P ID,从视频信息中获取
 
         Returns:
-            调用 API 返回的结果
+            dict: 调用 API 返回的结果
         """
         if cid is None:
             raise ArgsException("需要 cid")
@@ -1392,7 +1511,7 @@ class Video:
         epid: Union[int, None] = None,
     ) -> dict:
         """
-        获取字幕信息
+        获取视频上一次播放的记录，字幕和地区信息。需要分集的 cid, 返回数据中含有json字幕的链接
 
         Args:
             cid (int | None): 分 P ID,从视频信息中获取
@@ -1400,17 +1519,22 @@ class Video:
             epid (int | None): 番剧分集 ID,从番剧信息中获取
 
         Returns:
-            调用 API 返回的结果
+            dict: 调用 API 返回的结果
         """
         if cid is None:
             raise ArgsException("需要 cid")
         api = API["info"]["get_player_info"]
 
         params = {
-            "aid": self.get_aid(),
+            "aid": await self.__get_aid(),
             "cid": cid,
-            "ep_id": epid,
+            "isGaiaAvoided": False,
+            "web_location": 1315873,
         }
+
+        if epid:
+            params["epid"] = epid
+
         return (
             await Api(**api, credential=self.credential).update_params(**params).result
         )
@@ -1423,7 +1547,7 @@ class Video:
         sign: bool,
         page_index: Union[int, None] = None,
         cid: Union[int, None] = None,
-    ):
+    ) -> dict:
         """
         上传字幕
 
@@ -1448,7 +1572,7 @@ class Video:
         ```
 
         Args:
-            lan        (str)                 : 字幕语言代码，参考 http://www.lingoes.cn/zh/translator/langcode.htm
+            lan        (str)                 : 字幕语言代码，参考 https://s1.hdslb.com/bfs/subtitle/subtitle_lan.json
 
             data       (dict)                : 字幕数据
 
@@ -1468,12 +1592,26 @@ class Video:
             if page_index is None:
                 raise ArgsException("page_index 和 cid 至少提供一个。")
 
-            cid = await self.__get_page_id_by_index(page_index)
+            cid = await self.__get_cid_by_index(page_index)
 
         self.credential.raise_for_no_sessdata()
         self.credential.raise_for_no_bili_jct()
 
         api = API["operate"]["submit_subtitle"]
+
+        # lan check，应该是这里面的语言代码
+        with open(
+            os.path.join(os.path.dirname(__file__), "data/subtitle_lan.json"),
+            encoding="utf-8",
+        ) as f:
+            subtitle_lans = json.load(f)
+            for lan_template in subtitle_lans:
+                if lan_template["lan"] == lan:
+                    break
+            else:
+                raise ArgsException(
+                    "lan 参数错误，请参见 https://s1.hdslb.com/bfs/subtitle/subtitle_lan.json"
+                )
 
         payload = {
             "type": 1,
@@ -1482,21 +1620,23 @@ class Video:
             "data": json.dumps(data),
             "submit": submit,
             "sign": sign,
-            "bvid": self.get_bvid(),
+            "bvid": await self.__get_bvid(),
         }
 
-        return await Api(**api, credential=self.credential).update_data(**data).result
+        return (
+            await Api(**api, credential=self.credential).update_data(**payload).result
+        )
 
     async def get_danmaku_snapshot(self) -> dict:
         """
         获取弹幕快照
 
         Returns:
-            调用 API 返回的结果
+            dict: 调用 API 返回的结果
         """
         api = API["danmaku"]["snapshot"]
 
-        params = {"aid": self.get_aid()}
+        params = {"aid": await self.__get_aid()}
 
         return (
             await Api(**api, credential=self.credential).update_params(**params).result
@@ -1518,13 +1658,13 @@ class Video:
 
             cid(int | None, optional)       : 分 P 编码
         Returns:
-            调用 API 返回的结果
+            dict: 调用 API 返回的结果
         """
         if cid is None:
             if page_index is None:
                 raise ArgsException("page_index 和 cid 至少提供一个。")
 
-            cid = await self.__get_page_id_by_index(page_index)
+            cid = await self.__get_cid_by_index(page_index)
 
         self.credential.raise_for_no_sessdata()
         self.credential.raise_for_no_bili_jct()
@@ -1546,26 +1686,20 @@ class Video:
             cid(int | None)       : 分 P 编码
 
         Returns:
-            调用 API 返回的结果
+            dict: 调用 API 返回的结果
         """
         if cid is None:
             if page_index is None:
                 raise ArgsException("page_index 和 cid 至少提供一个。")
 
-            cid = await self.__get_page_id_by_index(page_index)
+            cid = await self.__get_cid_by_index(page_index)
 
         api = API["info"]["pbp"]
-
         params = {"cid": cid}
-
-        session = get_session()
-
-        return json.loads(
-            (
-                await session.get(
-                    api["url"], params=params, cookies=self.credential.get_cookies()
-                )
-            ).text
+        return (
+            await Api(**api, credential=self.credential)
+            .update_params(**params)
+            .request(raw=True)
         )
 
     async def add_to_toview(self) -> dict:
@@ -1573,13 +1707,13 @@ class Video:
         添加视频至稍后再看列表
 
         Returns:
-            调用 API 返回的结果
+            dict: 调用 API 返回的结果
         """
         self.credential.raise_for_no_sessdata()
         self.credential.raise_for_no_bili_jct()
         api = get_api("toview")["operate"]["add"]
         datas = {
-            "aid": self.get_aid(),
+            "aid": await self.__get_aid(),
         }
         return await Api(**api, credential=self.credential).update_data(**datas).result
 
@@ -1588,12 +1722,12 @@ class Video:
         从稍后再看列表删除视频
 
         Returns:
-            调用 API 返回的结果
+            dict: 调用 API 返回的结果
         """
         self.credential.raise_for_no_sessdata()
         self.credential.raise_for_no_bili_jct()
         api = get_api("toview")["operate"]["del"]
-        datas = {"viewed": "false", "aid": self.get_aid()}
+        datas = {"viewed": "false", "aid": await self.__get_aid()}
         return await Api(**api, credential=self.credential).update_data(**datas).result
 
 
@@ -1604,34 +1738,35 @@ class VideoOnlineMonitor(AsyncEvent):
     示例代码：
 
     ```python
-        import asyncio
-        from bilibili_api import video
+    import asyncio
+    from bilibili_api import video
 
-        # 实例化
-        r = video.VideoOnlineMonitor("BV1Bf4y1Q7QP")
+    # 实例化
+    r = video.VideoOnlineMonitor("BV1Bf4y1Q7QP")
 
-        # 装饰器方法注册事件监听器
-        @r.on("ONLINE")
-        async def handler(data):
-            print(data)
+    # 装饰器方法注册事件监听器
+    @r.on("ONLINE")
+    async def handler(data):
+        print(data)
 
-        # 函数方法注册事件监听器
-        async def handler2(data):
-            print(data)
+    # 函数方法注册事件监听器
+    async def handler2(data):
+        print(data)
 
-        r.add_event_listener("ONLINE", handler2)
+    r.add_event_listener("ONLINE", handler2)
 
-        asyncio.get_event_loop().run_until_complete(r.connect())
-
+    asyncio.get_event_loop().run_until_complete(r.connect())
     ```
 
     Extends: AsyncEvent
+
+    Logger: VideoOnlineMonitor().logger
 
     Events:
         ONLINE：        在线人数更新。  CallbackData: dict。
         DANMAKU：       收到实时弹幕。  CallbackData: Danmaku。
         DISCONNECTED：  正常断开连接。  CallbackData: None。
-        ERROR:          发生错误。     CallbackData: aiohttp.ClientWebSocketResponse。
+        ERROR:          发生错误。     CallbackData: None。
         CONNECTED:      成功连接。     CallbackData: None。
     """
 
@@ -1673,7 +1808,7 @@ class VideoOnlineMonitor(AsyncEvent):
             debug      (bool, optional)             : 调试模式，将输出更详细信息. Defaults to False.
         """
         super().__init__()
-        self.credential = credential
+        self.credential: Credential = credential if credential else Credential()
         self.__video = Video(bvid, aid, credential=credential)
 
         # 智能选择在 log 中展示的 ID。
@@ -1711,7 +1846,7 @@ class VideoOnlineMonitor(AsyncEvent):
         self.logger.info("主动断开连接。")
         self.dispatch("DISCONNECTED")
         await self.__cancel_all_tasks()
-        await self.__ws.close()
+        await self.__client.ws_close(self.__ws)
 
     async def __main(self):
         """
@@ -1724,10 +1859,12 @@ class VideoOnlineMonitor(AsyncEvent):
         cid = pages[self.__page_index]["cid"]
 
         # 获取服务器信息
-        self.logger.debug(f"准备连接：{self.__video.get_bvid()}")
+        bvid = self.__video.get_bvid()
+        self.__bvid = await bvid if iscoroutine(bvid) else bvid
+        self.logger.debug(f"准备连接：{self.__bvid}")
         self.logger.debug(f"获取服务器信息中...")
 
-        api = API["video"]["info"]["video_online_broadcast_servers"]
+        api = API["info"]["video_online_broadcast_servers"]
         resp = await Api(**api, credential=self.credential).result
 
         uri = f"wss://{resp['domain']}:{resp['wss_port']}/sub"
@@ -1736,36 +1873,38 @@ class VideoOnlineMonitor(AsyncEvent):
 
         # 连接服务器
         self.logger.debug("准备连接服务器...")
-        session = get_aiohttp_session()
-        async with session.ws_connect(uri) as ws:
-            self.__ws = ws
+        self.__client = get_client()
+        self.__ws = await self.__client.ws_create(uri)
 
-            # 发送认证信息
-            self.logger.debug("服务器连接成功，准备发送认证信息...")
-            verify_info = {
-                "room_id": f"video://{self.__video.get_aid()}/{cid}",
-                "platform": "web",
-                "accepts": [1000, 1015],
-            }
-            verify_info = json.dumps(verify_info, separators=(",", ":"))
-            await ws.send_bytes(
-                self.__pack(
-                    VideoOnlineMonitor.Datapack.CLIENT_VERIFY, 1, verify_info.encode()
-                )
-            )
+        # 发送认证信息
+        self.logger.debug("服务器连接成功，准备发送认证信息...")
+        verify_info = {
+            "room_id": f"video://{bvid2aid(self.__bvid)}/{cid}",
+            "platform": "web",
+            "accepts": [1000, 1015],
+        }
+        verify_info = json.dumps(verify_info, separators=(",", ":"))
+        await self.__client.ws_send(
+            self.__ws,
+            self.__pack(
+                VideoOnlineMonitor.Datapack.CLIENT_VERIFY, 1, verify_info.encode()
+            ),
+        )
 
-            # 循环接收消息
-            async for msg in ws:
-                if msg.type == aiohttp.WSMsgType.BINARY:
-                    data = self.__unpack(msg.data)
-                    self.logger.debug(f"收到消息：{data}")
-                    await self.__handle_data(data)  # type: ignore
-
-                elif msg.type == aiohttp.WSMsgType.ERROR:
-                    self.logger.warning("连接被异常断开")
-                    await self.__cancel_all_tasks()
-                    self.dispatch("ERROR", msg)
-                    break
+        # 循环接收消息
+        while True:
+            try:
+                data, flag = await self.__client.ws_recv(self.__ws)
+            except:
+                self.logger.warning("连接被异常断开")
+                await self.__cancel_all_tasks()
+                self.dispatch("ERROR", "")
+            if flag == BiliWsMsgType.BINARY:
+                data = self.__unpack(data)
+                self.logger.debug(f"收到消息：{data}")
+                await self.__handle_data(data)  # type: ignore
+            elif flag == BiliWsMsgType.CLOSED:
+                break
 
     async def __handle_data(self, data: List[dict]):
         """
@@ -1822,12 +1961,13 @@ class VideoOnlineMonitor(AsyncEvent):
         index = 2
         while True:
             self.logger.debug(f"发送心跳包，编号：{index}")
-            await self.__ws.send_bytes(
+            await self.__client.ws_send(
+                self.__ws,
                 self.__pack(
                     VideoOnlineMonitor.Datapack.CLIENT_HEARTBEAT,
                     index,
                     b"[object Object]",
-                )
+                ),
             )
             index += 1
             await asyncio.sleep(self.__heartbeat_interval)
@@ -1965,7 +2105,7 @@ class AudioQuality(Enum):
 
     _64K = 30216
     _132K = 30232
-    DOLBY = 30250
+    DOLBY = 30255
     HI_RES = 30251
     _192K = 30280
 
@@ -2019,28 +2159,14 @@ class FLVStreamDownloadURL:
 
 
 @dataclass
-class HTML5MP4DownloadURL:
+class MP4StreamDownloadURL:
     """
     (@dataclass)
 
-    可供 HTML5 播放的 mp4 视频流
+    MP4 视频流
 
     Attributes:
         url           (str): HTML5 mp4 视频流
-    """
-
-    url: str
-
-
-@dataclass
-class EpisodeTryMP4DownloadURL:
-    """
-    (@dataclass)
-
-    番剧/课程试看的 mp4 播放流
-
-    Attributes:
-        url           (str): 番剧试看的 mp4 播放流
     """
 
     url: str
@@ -2066,54 +2192,29 @@ class VideoDownloadURLDataDetecter:
             data (dict): `Video.get_download_url` 返回的结果
         """
         self.__data = data
+        if self.__data.get("video_info"):  # bangumi
+            self.__data = self.__data["video_info"]
 
     def check_video_and_audio_stream(self) -> bool:
         """
-        判断是否为音视频分离流
+        判断是否为 DASH （音视频分离）
 
         Returns:
-            bool: 是否为音视频分离流
+            bool: 是否为 DASH
         """
         if "dash" in self.__data.keys():
             return True
         return False
 
-    def check_flv_stream(self) -> bool:
+    def check_flv_mp4_stream(self) -> bool:
         """
-        判断是否为 FLV 视频流
+        判断是否为 FLV / MP4 流
 
         Returns:
-            bool: 是否为 FLV 视频流
+            bool: 是否为 FLV / MP4 流
         """
         if "durl" in self.__data.keys():
-            if self.__data["format"].startswith("flv"):
-                return True
-        return False
-
-    def check_html5_mp4_stream(self) -> bool:
-        """
-        判断是否为 HTML5 可播放的 mp4 视频流
-
-        Returns:
-            bool: 是否为 HTML5 可播放的 mp4 视频流
-        """
-        if "durl" in self.__data.keys():
-            if self.__data["format"].startswith("mp4"):
-                if self.__data.get("is_html5") == True:
-                    return True
-        return False
-
-    def check_episode_try_mp4_stream(self):
-        """
-        判断是否为番剧/课程试看的 mp4 视频流
-
-        Returns:
-            bool: 是否为番剧试看的 mp4 视频流
-        """
-        if "durl" in self.__data.keys():
-            if self.__data["format"].startswith("mp4"):
-                if self.__data.get("is_html5") != True:
-                    return True
+            return True
         return False
 
     def detect_all(self):
@@ -2151,16 +2252,13 @@ class VideoDownloadURLDataDetecter:
             VideoStreamDownloadURL,
             AudioStreamDownloadURL,
             FLVStreamDownloadURL,
-            HTML5MP4DownloadURL,
-            EpisodeTryMP4DownloadURL,
+            MP4StreamDownloadURL,
         ]
     ]:
         """
         解析数据
 
         Args:
-            **以下参数仅能在音视频流分离的情况下产生作用，flv / mp4 试看流 / html5 mp4 流下以下参数均没有作用**
-
             video_max_quality       (VideoQuality, optional)      : 设置提取的视频流清晰度最大值，设置此参数绝对不会禁止 HDR/杜比. Defaults to VideoQuality._8K.
 
             audio_max_quality       (AudioQuality, optional)      : 设置提取的音频流清晰度最大值. 设置此参数绝对不会禁止 Hi-Res/杜比. Defaults to AudioQuality._192K.
@@ -2185,27 +2283,28 @@ class VideoDownloadURLDataDetecter:
 
         Returns:
             List[VideoStreamDownloadURL | AudioStreamDownloadURL | FLVStreamDownloadURL | HTML5MP4DownloadURL | EpisodeTryMP4DownloadURL]: 提取出来的视频/音频流
+
+        **参数仅能在音视频流分离的情况下产生作用，flv / mp4 流下以下参数均没有作用**
         """
         if "durl" in self.__data.keys():
             if self.__data["format"].startswith("flv"):
                 # FLV 视频流
                 return [FLVStreamDownloadURL(url=self.__data["durl"][0]["url"])]
             else:
-                if self.check_html5_mp4_stream():
-                    # HTML5 MP4 视频流
-                    return [HTML5MP4DownloadURL(url=self.__data["durl"][0]["url"])]
-                else:
-                    # 会员番剧试看 MP4 流
-                    return [EpisodeTryMP4DownloadURL(url=self.__data["durl"][0]["url"])]
+                # MP4 视频流
+                return [MP4StreamDownloadURL(url=self.__data["durl"][0]["url"])]
         else:
             # 正常情况
             streams = []
             videos_data = self.__data["dash"]["video"]
-            audios_data = self.__data["dash"]["audio"]
-            flac_data = self.__data["dash"]["flac"]
-            dolby_data = self.__data["dash"]["dolby"]
+            audios_data = self.__data["dash"].get("audio")
+            flac_data = self.__data["dash"].get("flac")
+            dolby_data = self.__data["dash"].get("dolby")
             for video_data in videos_data:
-                video_stream_url = video_data["baseUrl"]
+                if video_data.get("baseUrl"):
+                    video_stream_url = video_data["baseUrl"]
+                else:
+                    video_stream_url = video_data["base_url"]
                 video_stream_quality = VideoQuality(video_data["id"])
                 if video_stream_quality == VideoQuality.HDR and no_hdr:
                     continue
@@ -2245,7 +2344,10 @@ class VideoDownloadURLDataDetecter:
                 streams.append(video_stream)
             if audios_data:
                 for audio_data in audios_data:
-                    audio_stream_url = audio_data["baseUrl"]
+                    if audio_data.get("baseUrl"):
+                        audio_stream_url = audio_data["baseUrl"]
+                    else:
+                        audio_stream_url = audio_data["base_url"]
                     audio_stream_quality = AudioQuality(audio_data["id"])
                     if audio_stream_quality.value > audio_max_quality.value:
                         continue
@@ -2259,7 +2361,7 @@ class VideoDownloadURLDataDetecter:
                     streams.append(audio_stream)
             if flac_data and (not no_hires):
                 if flac_data["audio"]:
-                    flac_stream_url = flac_data["audio"]["baseUrl"]
+                    flac_stream_url = flac_data["audio"]["base_url"]
                     flac_stream_quality = AudioQuality(flac_data["audio"]["id"])
                     flac_stream = AudioStreamDownloadURL(
                         url=flac_stream_url, audio_quality=flac_stream_quality
@@ -2267,8 +2369,9 @@ class VideoDownloadURLDataDetecter:
                     streams.append(flac_stream)
             if dolby_data and (not no_dolby_audio):
                 if dolby_data["audio"]:
-                    dolby_stream_url = dolby_data["audio"]["baseUrl"]
-                    dolby_stream_quality = AudioQuality(dolby_data["audio"]["id"])
+                    dolby_stream_data = dolby_data["audio"][0]
+                    dolby_stream_url = dolby_stream_data["base_url"]
+                    dolby_stream_quality = AudioQuality(dolby_stream_data["id"])
                     dolby_stream = AudioStreamDownloadURL(
                         url=dolby_stream_url, audio_quality=dolby_stream_quality
                     )
@@ -2296,18 +2399,18 @@ class VideoDownloadURLDataDetecter:
         no_dolby_audio: bool = False,
         no_hdr: bool = False,
         no_hires: bool = False,
-    ) -> Union[
-        List[FLVStreamDownloadURL],
-        List[HTML5MP4DownloadURL],
-        List[EpisodeTryMP4DownloadURL],
-        List[Union[VideoStreamDownloadURL, AudioStreamDownloadURL, None]],
+    ) -> List[
+        Union[
+            VideoStreamDownloadURL,
+            AudioStreamDownloadURL,
+            FLVStreamDownloadURL,
+            MP4StreamDownloadURL,
+        ]
     ]:
         """
         提取出分辨率、音质等信息最好的音视频流。
 
         Args:
-            **以下参数仅能在音视频流分离的情况下产生作用，flv / mp4 试看流 / html5 mp4 流下以下参数均没有作用**
-
             video_max_quality       (VideoQuality)                : 设置提取的视频流清晰度最大值，设置此参数绝对不会禁止 HDR/杜比. Defaults to VideoQuality._8K.
 
             audio_max_quality       (AudioQuality)                : 设置提取的音频流清晰度最大值. 设置此参数绝对不会禁止 Hi-Res/杜比. Defaults to AudioQuality._192K.
@@ -2332,13 +2435,11 @@ class VideoDownloadURLDataDetecter:
 
         Returns:
             List[VideoStreamDownloadURL | AudioStreamDownloadURL | FLVStreamDownloadURL | HTML5MP4DownloadURL | None]: FLV 视频流 / HTML5 MP4 视频流 / 番剧或课程试看 MP4 视频流返回 `[FLVStreamDownloadURL | HTML5MP4StreamDownloadURL | EpisodeTryMP4DownloadURL]`, 否则为 `[VideoStreamDownloadURL, AudioStreamDownloadURL]`, 如果未匹配上任何合适的流则对应的位置位 `None`
+
+        **以上参数仅能在音视频流分离的情况下产生作用，flv / mp4 试看流 / html5 mp4 流下以下参数均没有作用**
         """
-        if self.check_flv_stream():
-            return self.detect_all()  # type: ignore
-        elif self.check_html5_mp4_stream():
-            return self.detect_all()  # type: ignore
-        elif self.check_episode_try_mp4_stream():
-            return self.detect_all()  # type: ignore
+        if self.check_flv_mp4_stream():
+            return self.detect_all()
         else:
             data = self.detect(
                 video_max_quality=video_max_quality,
@@ -2348,6 +2449,10 @@ class VideoDownloadURLDataDetecter:
                 video_accepted_qualities=video_accepted_qualities,
                 audio_accepted_qualities=audio_accepted_qualities,
                 codecs=codecs,
+                no_dolby_video=no_dolby_video,
+                no_dolby_audio=no_dolby_audio,
+                no_hires=no_hires,
+                no_hdr=no_hdr,
             )
             video_streams = []
             audio_streams = []

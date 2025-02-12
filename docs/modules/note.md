@@ -1,187 +1,276 @@
 # Module note.py
 
-```python
+
+bilibili_api.note
+
+笔记相关
+
+
+``` python
 from bilibili_api import note
 ```
 
-笔记相关操作
-
-?> 注意，笔记分为私有笔记和公开笔记...公开笔记实质为专栏
-?> 公有笔记不限数量，私有笔记每稿件只能写一篇
-
-## const dict NoteType
-
-笔记类型枚举
-
-## class Video
-
-笔记类，各种对笔记的操作都在里面
-
-### Attributes
-
-| name | type | description|
-| ---- | ---- | ---------- |
-| credential | Credential | 凭据 |
-
-### Funcitions
-
-#### def \_\_init\_\_()
-| name | type | description|
-| ---- | ---- | ---------- |
-| type | str | 笔记类型 |
-| oid | int | 稿件 id |
-| oid_type | int | 稿件 id 类型 |
-| note_id | int | 笔记 id |
-| credential | Credential \| None, optional | Credential 类 |
+- [class Note()](#class-Note)
+  - [def \_\_init\_\_()](#def-\_\_init\_\_)
+  - [async def add\_coins()](#async-def-add\_coins)
+  - [async def fetch\_content()](#async-def-fetch\_content)
+  - [def get\_aid()](#def-get\_aid)
+  - [async def get\_all()](#async-def-get\_all)
+  - [def get\_cvid()](#def-get\_cvid)
+  - [async def get\_images()](#async-def-get\_images)
+  - [async def get\_images\_raw\_info()](#async-def-get\_images\_raw\_info)
+  - [async def get\_info()](#async-def-get\_info)
+  - [def get\_note\_id()](#def-get\_note\_id)
+  - [async def get\_private\_note\_info()](#async-def-get\_private\_note\_info)
+  - [async def get\_public\_note\_info()](#async-def-get\_public\_note\_info)
+  - [def json()](#def-json)
+  - [def markdown()](#def-markdown)
+  - [async def set\_favorite()](#async-def-set\_favorite)
+  - [async def set\_like()](#async-def-set\_like)
+  - [def turn\_to\_article()](#def-turn\_to\_article)
+- [class NoteType()](#class-NoteType)
+- [async def upload\_image()](#async-def-upload\_image)
 
 ---
 
-#### def set_oid()
+## class Note()
+
+笔记相关
+
+
+
+
+### def \_\_init\_\_()
+
 
 | name | type | description |
-| ---- | ---- | ----------- |
-| oid | int  | av 号。     |
+| - | - | - |
+| `cvid` | `int` | 公开笔记 ID (对应专栏的 cvid) (公开笔记必要) |
+| `aid` | `int` | 稿件 ID（oid_type 为 0 时是 avid） (私有笔记必要) |
+| `note_id` | `int` | 私有笔记 ID (私有笔记必要) |
+| `note_type` | `str` | 笔记类型 (private, public) |
+| `credential` | `Credential, optional` | Credential. Defaults to None. |
 
-设置 oid。
 
-**Returns:** None
+### async def add_coins()
 
----
+(仅供公开笔记)
 
-#### def set_note_id()
+给笔记投币，目前只能投一个。
 
-| name | type | description |
-| ---- | ---- | ----------- |
-| note_id | int  | note_id。 |
 
-设置 note_id。
 
-**Returns:** None
+**Returns:** `dict`:  调用 API 返回的结果
 
----
 
-#### def set_cvid()
 
-| name | type | description |
-| ---- | ---- | ----------- |
-| cvid | int  | cvid 专栏号。 |
 
-设置 cvid。
+### async def fetch_content()
 
-**Returns:** None
+获取并解析笔记内容
 
----
+该返回不会返回任何值，调用该方法后请再调用 `self.markdown()` 或 `self.json()` 来获取你需要的值。
 
-#### def get_oid()
 
-获取 oid。
 
-**Returns:** str: oid
 
----
 
-#### def get_cvid()
 
-获取 cvid。
+### def get_aid()
 
-**Returns:** str: cvid
+获取私有笔记对应视频 aid
 
----
 
-#### def get_note_id()
 
-获取 note_id。
+**Returns:** `int`:  aid
 
-**Returns:** str: note_id
 
----
 
-#### async def get_info()
 
-获取笔记信息。
+### async def get_all()
 
-**Returns:** API 调用返回结果。
+(仅供公开笔记)
 
----
+一次性获取专栏尽可能详细数据，包括原始内容、标签、发布时间、标题、相关专栏推荐等
 
-#### async def get_images_raw_info()
 
-获取笔记所有图片原始信息。
 
-**Returns:** API 调用返回结果。
+**Returns:** `dict`:  调用 API 返回的结果
 
----
 
-#### async def get_images()
 
-获取笔记所有图片并转为 Picture 类。
 
-**Returns:** List[Picture]
+### def get_cvid()
 
----
+获取公开笔记 cvid
 
-#### async def get_all()
 
-一次性获取专栏尽可能详细数据，包括原始内容、标签、发布时间、标题、相关专栏推荐等。
 
-**Returns:** API 调用返回结果。
+**Returns:** `int`:  公开笔记 cvid
 
----
 
-#### async def fetch_content()
 
-加载专栏内容。该方法不会返回任何值，调用该方法后请再调用 `self.markdown()` 或 `self.json() `来获取你需要的值。
 
-**Returns:** None
+### async def get_images()
 
----
+获取笔记所有图片并转为 Picture 类
 
-#### def markdown()
 
-转换为 Markdown
 
-请先调用 fetch_content()
+**Returns:** `list`:  图片信息
 
-**Returns:** str: Markdown 内容
 
----
 
-#### def json()
+
+### async def get_images_raw_info()
+
+获取笔记所有图片原始信息
+
+
+
+**Returns:** `list`:  图片信息
+
+
+
+
+### async def get_info()
+
+获取笔记信息
+
+
+
+**Returns:** `dict`:  笔记信息
+
+
+
+
+### def get_note_id()
+
+获取私有笔记 note_id
+
+
+
+**Returns:** `int`:  note_id
+
+
+
+
+### async def get_private_note_info()
+
+获取私有笔记信息。
+
+
+
+**Returns:** `dict`:  调用 API 返回的结果。
+
+
+
+
+### async def get_public_note_info()
+
+获取公有笔记信息。
+
+
+
+**Returns:** `dict`:  调用 API 返回的结果。
+
+
+
+
+### def json()
 
 转换为 JSON 数据
 
 请先调用 fetch_content()
 
-**Returns:** dict: JSON 数据
 
----
 
-#### async def set_like()
+**Returns:** `dict`:  JSON 数据
 
-| name   | type           | description                |
-| ------ | -------------- | -------------------------- |
-| status | bool, optional | 点赞状态. Defaults to True |
 
-设置专栏点赞状态
 
-**Returns:** API 调用返回结果。
 
----
+### def markdown()
 
-#### async def set_favorite()
+转换为 Markdown
 
-| name   | type           | description                |
-| ------ | -------------- | -------------------------- |
-| status | bool, optional | 收藏状态. Defaults to True |
+请先调用 fetch_content()
+
+
+
+**Returns:** `str`:  Markdown 内容
+
+
+
+
+### async def set_favorite()
+
+(仅供公开笔记)
 
 设置专栏收藏状态
 
-**Returns:** API 调用返回结果。
+
+| name | type | description |
+| - | - | - |
+| `status` | `bool, optional` | 收藏状态. Defaults to True |
+
+**Returns:** `dict`:  调用 API 返回的结果
+
+
+
+
+### async def set_like()
+
+(仅供公开笔记)
+
+设置专栏点赞状态
+
+
+| name | type | description |
+| - | - | - |
+| `status` | `bool, optional` | 点赞状态. Defaults to True |
+
+**Returns:** `dict`:  调用 API 返回的结果
+
+
+
+
+### def turn_to_article()
+
+将笔记类转为专栏类。需要保证笔记是公开笔记。
+
+
+
+**Returns:** `Note`:  专栏类
+
+
+
 
 ---
 
-#### async def add_coins()
+## class NoteType()
 
-给专栏投币，目前只能投一个
+**Extend: enum.Enum**
 
-**Returns:** API 调用返回结果。
+笔记类型
+
+
+
+
+---
+
+## async def upload_image()
+
+上传笔记图片
+
+
+| name | type | description |
+| - | - | - |
+| `img` | `Picture` | 图片 |
+| `credential` | `Credential` | 凭据类 |
+
+**Returns:** `dict`:  调用 API 返回的结果
+
+
+
+

@@ -17,11 +17,21 @@
         "detail":{
             "url": "https://api.bilibili.com/x/note/publish/info",
             "method": "GET",
-            "verify": true,
+            "verify": false,
             "params": {
                 "cvid": "cvid"
             },
             "comment": "公开笔记详细信息"
         }
+    },
+    "operate": {
+      "upload_img": {
+        "url": "https://api.bilibili.com/x/note/image/upload",
+        "method": "POST",
+        "verify": true,
+        "files": {
+          "file": "bytes: 文件"
+        }
+      }
     }
 }

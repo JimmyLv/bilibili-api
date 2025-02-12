@@ -1,20 +1,22 @@
 {
     "qrcode": {
-        "get_qrcode_and_token": {
-            "url": "https://passport.bilibili.com/x/passport-login/web/qrcode/generate?source=main-fe-header",
-            "method": "GET",
-            "verify": false,
-            "comment": "请求二维码及登录密钥"
-        },
-        "get_events": {
-            "url": "https://passport.bilibili.com/x/passport-login/web/qrcode/poll",
-            "method": "GET",
-            "verify": false,
-            "data": {
-                "qrcode_key": "str: 登陆密钥",
-                "source": "main-fe-header"
+        "web": {
+            "get_qrcode_and_token": {
+                "url": "https://passport.bilibili.com/x/passport-login/web/qrcode/generate?source=main-fe-header",
+                "method": "GET",
+                "verify": false,
+                "comment": "请求二维码及登录密钥"
             },
-            "comment": "获取最新信息"
+            "get_events": {
+                "url": "https://passport.bilibili.com/x/passport-login/web/qrcode/poll",
+                "method": "GET",
+                "verify": false,
+                "params": {
+                    "qrcode_key": "str: 登陆密钥",
+                    "source": "main-fe-header"
+                },
+                "comment": "获取最新信息"
+            }
         },
         "old": {
             "get_qrcode_and_token": {
@@ -31,6 +33,33 @@
                     "oauthKey": "str: 登陆密钥"
                 },
                 "comment": "旧获取最新信息"
+            }
+        },
+        "tv": {
+            "get_qrcode_and_auth_code": {
+                "url": "https://passport.bilibili.com/x/passport-tv-login/qrcode/auth_code",
+                "method": "POST",
+                "verify": false,
+                "sign": true,
+                "data": {
+                    "ts": "str: 时间戳",
+                    "local_id": "int: 0"
+                },
+                "comment": "tv 请求二维码及登录密钥"
+            },
+            "get_events": {
+              "url": "https://passport.bilibili.com/x/passport-tv-login/qrcode/poll",
+              "method": "POST",
+              "verify": false,
+              "sign": true,
+              "data": {
+                "appkey": "str: appkey",
+                "sign": "str: 签名",
+                "ts": "str: 时间戳",
+                "local_id": "int: 0",
+                "auth_code": "str: 登陆密钥"
+              },
+              "comment": "tv 获取最新信息"
             }
         }
     },
@@ -105,6 +134,58 @@
                 "tmp_code": "str: 验证标记代码"
             },
             "comment": "获取验证信息"
+        },
+        "captcha": {
+            "url": "https://passport.bilibili.com/x/safecenter/captcha/pre",
+            "method": "POST",
+            "verify": false,
+            "comment": "获取极验信息"
+        },
+        "send": {
+            "url": "https://passport.bilibili.com/x/safecenter/common/sms/send",
+            "method": "POST",
+            "verify": false,
+            "params": {
+                "sms_type": "str: loginTelCheck，如无 requestId 则为 secLogin",
+                "tmp_code": "str: 验证标记代码",
+                "gee_challenge": "str: 极验 challenge",
+                "gee_gt": "str: 极验 gt",
+                "gee_seccode": "str: 极验 seccode",
+                "gee_validate": "str: 极验 validate",
+                "recaptcha_token": "str: 极验 token"
+            }
+        },
+        "get_exchange": {
+            "url": "https://passport.bilibili.com/x/safecenter/login/tel/verify",
+            "method": "POST",
+            "params": {
+                "type": "(str)loginTelCheck",
+                "code": "(int)验证码内容",
+                "tmp_code": "(str)验证标记代码,来自数据处理中的解析出的参数 tmp_token",
+                "request_id": "(str)验证请求标记,来自数据处理中的解析出的参数 requestId",
+                "captcha_key": "(str)验证秘钥,来自申请验证码的captcha_key（data->captcha_key）"
+            },
+            "comment": "获取交换验证码"
+        },
+        "get_exchange_no_request_id": {
+            "url": "https://passport.bilibili.com/x/safecenter/sec/verify",
+            "method": "POST",
+            "params": {
+              "verify_type": "(str)sms",
+              "code": "(int)验证码内容",
+              "tmp_code": "(str)验证标记代码,来自数据处理中的解析出的参数 tmp_token",
+              "captcha_key": "(str)验证秘钥,来自申请验证码的captcha_key（data->captcha_key）"
+            },
+            "comment": "获取交换验证码"
+        },
+        "get_cookies": {
+            "url": "https://passport.bilibili.com/x/passport-login/web/exchange_cookie",
+            "method": "POST",
+            "params": {
+                "code": "str: 交换代码",
+                "go_url": "(str)https://passport.bilibili.com/pc/passport/risk/secTip?gourl=https%3A%2F%2Fwww.bilibili.com%2F&bind_tel=1 如果无 requestId 则提供"
+            },
+            "comment": "获取 cookies (头部会执行 set-cookies)"
         }
     }
 }

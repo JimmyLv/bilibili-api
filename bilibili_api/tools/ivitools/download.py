@@ -3,39 +3,20 @@ ivitools.download
 
 下载互动视频
 """
+
+import asyncio
 import os
 
-import tqdm
-import requests
 from colorama import Fore
 
-from bilibili_api import sync, interactive_video
-
-
-async def download_file(url: str, out: str):
-    resp = requests.get(
-        url,
-        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.bilibili.com"},
-        stream=True,
-    )
-    headers = resp.headers
-    CHUNK_SIZE = 1024
-    parts = int(headers["Content-Length"]) // CHUNK_SIZE
-    if int(headers["Content-Length"]) % CHUNK_SIZE != 0:
-        parts += 1
-    fp = open(out, "wb")
-    bar = tqdm.tqdm(range(parts))
-    bar.set_description("DOWNLOADING...")
-    bar.display()
-    for chunk in resp.iter_content(CHUNK_SIZE):
-        fp.write(chunk)
-        bar.update(1)
-
+from bilibili_api import HEADERS, interactive_video, sync, video
 
 def download_interactive_video(bvid: str, out: str):
     ivideo = interactive_video.InteractiveVideo(bvid)
     downloader = interactive_video.InteractiveVideoDownloader(
-        ivideo, out, download_file
+        ivideo,
+        out,
+        stream_detecting_params={"codecs": [video.VideoCodecs.AVC]},
     )
 
     @downloader.on("START")
@@ -48,13 +29,19 @@ def download_interactive_video(bvid: str, out: str):
 
     @downloader.on("PREPARE_DOWNLOAD")
     async def on_prepare_download(data):
-        print(
-            f'Start download the video for cid {data["cid"]}'
-        )
+        print(f'Start download the video for cid {data["cid"]}')
+
+    @downloader.on("DOWNLOAD_PART")
+    async def on_download_part(data):
+        print(f'{data["done"]} / {data["total"]}', end="\r")
+
+    @downloader.on("DOWNLOAD_SUCCESS")
+    async def on_download_success(adta):
+        print()
 
     @downloader.on("PACKAGING")
     async def on_packaing(data):
-        print("Almost!!! It's packaging your interactive video now! ")
+        print("Packaging your file ...")
 
     @downloader.on("SUCCESS")
     async def on_success(data):

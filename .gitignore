@@ -25,3 +25,7 @@ virtualenv/
 # IDE
 .idea/
 .vscode/settings.json
+.vscode/launch.json
+# Doc Generater
+.doc_cache/
+.mypy_cache/

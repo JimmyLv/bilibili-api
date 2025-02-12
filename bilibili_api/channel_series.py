@@ -3,15 +3,13 @@ bilibili_api.channel_series
 
 用户合集与列表相关
 """
+
 import json
 from enum import Enum
 from typing import List, Union, Optional
 
-import httpx
-
-from .utils.utils import get_api
-from .utils.credential import Credential
-from .utils.network import Api
+from .utils.utils import get_api, raise_for_statement
+from .utils.network import Api, HEADERS, Credential
 
 API_USER = get_api("user")
 API = get_api("channel-series")
@@ -70,43 +68,48 @@ class ChannelSeries:
             credential(Credential)  : 凭证. Defaults to None.
         """
         global channel_meta_cache
-        assert id_ != -1
-        assert type_ != None
+        raise_for_statement(id_ != -1)
+        raise_for_statement(type_ != None)
         from .user import User
 
         self.__uid = uid
         self.is_new = type_.value
         self.id_ = id_
         self.owner = User(self.__uid, credential=credential)
-        self.credential = credential
+        self.credential: Credential = credential if credential else Credential()
         self.meta = None
-        if not f"{type_.value}-{id_}" in channel_meta_cache.keys():
-            if self.is_new:
-                api = API_USER["channel_series"]["season_info"]
-                params = {"season_id": self.id_}
-            else:
-                api = API_USER["channel_series"]["info"]
-                params = {"series_id": self.id_}
-            resp = json.loads(httpx.get(api["url"], params=params).text)["data"]
-            if self.is_new:
-                self.meta = resp["info"]
-                self.meta["mid"] = resp["info"]["upper"]["mid"]
-                self.__uid = self.meta["mid"]
-                self.owner = User(self.__uid, credential=credential)
-            else:
-                self.meta = resp["meta"]
-                self.__uid = self.meta["mid"]
-                self.owner = User(self.__uid, credential=credential)
-        else:
+        if f"{type_.value}-{id_}" in channel_meta_cache.keys():
             self.meta = channel_meta_cache[f"{type_.value}-{id_}"]
 
-    def get_meta(self) -> dict:
+    async def __fetch_meta(self) -> None:
+        from .user import User
+
+        if self.is_new:
+            api = API_USER["channel_series"]["season_info"]
+            params = {"season_id": self.id_}
+        else:
+            api = API_USER["channel_series"]["info"]
+            params = {"series_id": self.id_}
+        resp = await Api(**api).update_params(**params).result
+        if self.is_new:
+            self.meta = resp["info"]
+            self.meta["mid"] = resp["info"]["upper"]["mid"]
+            self.__uid = self.meta["mid"]
+            self.owner = User(self.__uid, credential=self.credential)
+        else:
+            self.meta = resp["meta"]
+            self.__uid = self.meta["mid"]
+            self.owner = User(self.__uid, credential=self.credential)
+
+    async def get_meta(self) -> dict:
         """
         获取元数据
 
         Returns:
-            调用 API 返回的结果
+            dict: 调用 API 返回的结果
         """
+        if not self.meta:
+            await self.__fetch_meta()
         return self.meta  # type: ignore
 
     async def get_videos(
@@ -122,8 +125,10 @@ class ChannelSeries:
             ps(int)           : 每一页显示的视频数量
 
         Returns:
-            调用 API 返回的结果
+            dict: 调用 API 返回的结果
         """
+        if self.__uid == -1:
+            await self.__fetch_meta()
         if self.is_new:
             return await self.owner.get_channel_videos_season(self.id_, sort, pn, ps)
         else:

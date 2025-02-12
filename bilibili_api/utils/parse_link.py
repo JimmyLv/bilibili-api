@@ -4,12 +4,9 @@ bilibili_api.utils.parse_link
 链接资源解析。
 """
 
-import re
-import json
 from enum import Enum
 from typing import Tuple, Union, Literal
 
-import httpx
 from yarl import URL
 
 from ..game import Game
@@ -23,7 +20,7 @@ from ..dynamic import Dynamic
 from .short import get_real_url
 from ..note import Note, NoteType
 from ..black_room import BlackRoom
-from .credential import Credential
+from .network import Credential, Api
 from ..audio import Audio, AudioList
 from ..bangumi import Bangumi, Episode
 from ..article import Article, ArticleList
@@ -31,6 +28,9 @@ from ..cheese import CheeseList, CheeseVideo
 from ..interactive_video import InteractiveVideo
 from ..favorite_list import FavoriteList, FavoriteListType
 from ..user import User, ChannelSeries, ChannelSeriesType, get_self_info
+from ..opus import Opus
+
+from .initial_state import get_initial_state
 
 
 class ResourceType(Enum):
@@ -54,6 +54,7 @@ class ResourceType(Enum):
     + TOPIC: 话题
     + MANGA: 漫画
     + NOTE: 笔记
+    + OPUS: 图文
     + FAILED: 错误
     """
 
@@ -76,12 +77,11 @@ class ResourceType(Enum):
     TOPIC = "topic"
     MANGA = "manga"
     NOTE = "note"
+    OPUS = "opus"
     FAILED = "failed"
 
 
-async def parse_link(
-    url: str, credential: Union[Credential, None] = None
-) -> Union[
+async def parse_link(url: str, credential: Union[Credential, None] = None) -> Union[
     Tuple[Video, Literal[ResourceType.VIDEO]],
     Tuple[InteractiveVideo, Literal[ResourceType.INTERACTIVE_VIDEO]],
     Tuple[Bangumi, Literal[ResourceType.BANGUMI]],
@@ -132,7 +132,7 @@ async def parse_link(
             url = "https:" + url
 
         # 转换为 yarl
-        url = URL(url) # type: ignore
+        url = URL(url)  # type: ignore
 
         # 排除小黑屋
         black_room = parse_black_room(url, credential)  # type: ignore
@@ -150,7 +150,7 @@ async def parse_link(
                 return (User(info["mid"], credential=credential), ResourceType.USER)
 
         channel = parse_season_series(
-            url, credential # type: ignore
+            url, credential  # type: ignore
         )  # 不需要 real_url，提前处理
         if channel != -1:
             return (channel, ResourceType.CHANNEL_SERIES)  # type: ignore
@@ -158,7 +158,7 @@ async def parse_link(
         url = await get_real_url(str(url))  # type: ignore
         url = URL(url)  # type: ignore
 
-        fl_space = parse_space_favorite_list(url, credential)  # type: ignore
+        fl_space = await parse_space_favorite_list(url, credential)  # type: ignore
         if fl_space != -1:
             return fl_space  # type: ignore
         game = parse_game(url, credential)  # type: ignore
@@ -169,10 +169,10 @@ async def parse_link(
         if topic != -1:
             topic.credential = credential  # type: ignore
             return (topic, ResourceType.TOPIC)  # type: ignore
-        bnj_video = parse_bnj(url, credential)  # type: ignore
-        if bnj_video != -1:
-            bnj_video.credential = credential  # type: ignore
-            return (bnj_video, ResourceType.VIDEO)  # type: ignore
+        festival_video = await parse_festival(url, credential)  # type: ignore
+        if festival_video != -1:
+            festival_video.credential = credential  # type: ignore
+            return (festival_video, ResourceType.VIDEO)  # type: ignore
         note = parse_note(url, credential)  # type: ignore
         if note != -1:
             return (note, ResourceType.NOTE)  # type: ignore
@@ -217,9 +217,9 @@ async def parse_link(
         manga = parse_manga(url, credential)  # type: ignore
         if not manga == -1:
             obj = (manga, ResourceType.MANGA)
-        opus_dynamic = parse_opus_dynamic(url, credential) # type: ignore
+        opus_dynamic = parse_opus_dynamic(url, credential)  # type: ignore
         if not opus_dynamic == -1:
-            obj = (opus_dynamic, ResourceType.DYNAMIC)
+            obj = (opus_dynamic, ResourceType.OPUS)
 
         if obj == None or obj[0] == None:
             return (-1, ResourceType.FAILED)
@@ -244,16 +244,16 @@ async def auto_convert_video(
 
     # check episode
     if "redirect_url" in video_info:
-        reparse_link = await parse_link(await get_real_url(video_info["redirect_url"]), credential=credential)  # type: ignore
+        reparse_link = await parse_link(
+            await get_real_url(video_info["redirect_url"]), credential=credential
+        )  # type: ignore
         return reparse_link  # type: ignore
 
     # return video
     return (video, ResourceType.VIDEO)
 
 
-async def check_short_name(
-    name: str, credential: Credential
-) -> Union[
+async def check_short_name(name: str, credential: Credential) -> Union[
     Tuple[Video, Literal[ResourceType.VIDEO]],
     Tuple[Episode, Literal[ResourceType.EPISODE]],
     Tuple[CheeseVideo, Literal[ResourceType.CHEESE_VIDEO]],
@@ -348,18 +348,10 @@ async def parse_episode(url: URL, credential: Credential) -> Union[Episode, int]
                 epid = int(video_short_id[2:])
                 return Episode(epid=epid)
             elif video_short_id[:2].upper() == "SS":
-                sess = httpx.AsyncClient()
-                html_text = (await sess.get(str(url))).text
-                if "__INITIAL_STATE__" in html_text:
-                    pattern = re.compile(r"window.__INITIAL_STATE__=(\{.*?\});")
-                    match = re.search(pattern, html_text)
-                    content = json.loads(match.group(1))
-                    epid = content["epInfo"]["id"] if "id" in content["epInfo"] else content["epInfo"]["ep_id"]
-                else:
-                    epid = re.search(r'<link rel="canonical" href="//www.bilibili.com/bangumi/play/ep(\d+)"/>', html_text).group(1)
-                    return Episode(epid=epid, credential=credential)
+                bangumi = Bangumi(ssid=int(video_short_id[2:]))
+                epid = (await bangumi.get_episodes())[0].get_epid()
+                return Episode(epid=epid)
     return -1
-
 
 
 def parse_favorite_list(url: URL, credential: Credential) -> Union[FavoriteList, int]:
@@ -494,7 +486,7 @@ def parse_season_series(url: URL, credential: Credential) -> Union[ChannelSeries
     return -1
 
 
-def parse_space_favorite_list(
+async def parse_space_favorite_list(
     url: URL, credential: Credential
 ) -> Union[
     Tuple[FavoriteList, ResourceType], Tuple[ChannelSeries, ResourceType], Literal[-1]
@@ -508,9 +500,9 @@ def parse_space_favorite_list(
                 ):  # query 中不存在 fid 则返回默认收藏夹
                     api = get_api("favorite-list")["info"]["list_list"]
                     params = {"up_mid": uid, "type": 2}
-                    favorite_lists = httpx.get(
-                        api["url"], params=params, cookies=credential.get_cookies()
-                    ).json()["data"]
+                    favorite_lists = await (
+                        Api(**api, credential=credential).update_params(**params).result
+                    )
 
                     if favorite_lists == None:
                         return -1
@@ -613,7 +605,6 @@ def parse_topic(url: URL, credential: Credential) -> Union[Topic, int]:
             url.parts[:4] == ("/", "v", "topic", "detail")
             and url.query.get("topic_id") is not None
         ):
-
             return Topic(int(url.query["topic_id"]), credential=credential)
     return -1
 
@@ -624,11 +615,20 @@ def parse_manga(url: URL, credential: Credential) -> Union[Manga, int]:
     return -1
 
 
-def parse_bnj(url: URL, credential: Credential) -> Union[Video, int]:
-    # https://www.bilibili.com/festival/2023bnj?bvid=BV1ZY4y1f79x&spm_id_from=333.999.0.0
+async def parse_festival(url: URL, credential: Credential) -> Union[Video, int]:
     bvid = url.query.get("bvid")
-    if bvid is not None:
+    if bvid is not None:  # get bvid if provided
         return Video(bvid, credential=credential)
+
+    if (
+        url.host == "www.bilibili.com" and url.parts[1] == "festival"
+    ):  # use __initial_state__ to fetch
+        content, content_type = await get_initial_state(
+            url=str(url), credential=credential
+        )
+        return Video(
+            content["videoSections"][0]["episodes"][0]["bvid"], credential=credential
+        )  # 返回当前第一个视频
     return -1
 
 
@@ -650,5 +650,5 @@ def parse_nianshizhiwang(url: URL) -> None:
 def parse_opus_dynamic(url: URL, credential: Credential) -> Union[Dynamic, int]:
     # https://www.bilibili.com/opus/767674573455884292
     if url.host == "www.bilibili.com" and url.parts[:2] == ("/", "opus"):
-        return Dynamic(dynamic_id=int(url.parts[-1]), credential=credential)
+        return Opus(opus_id=int(url.parts[-1]), credential=credential)
     return -1

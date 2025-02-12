@@ -1,7 +1,7 @@
 ---
 name: 漏洞反馈
 about: 使用该模板进行漏洞反馈
-title: "[漏洞] {这里填写标题}"
+title: "[漏洞] 这里填写标题"
 labels: 'bug'
 assignees: ''
 
@@ -9,7 +9,7 @@ assignees: ''
 
 **Python 版本：** 3.x.y
 
-**模块版本：** x.y.z 
+**模块版本：** x.y.z <!--可使用 bilibili_api.BILIBILI_API_VERSION 或 pip3 show bilibili-api-python 查询-->
 
 <!--请务必使用 pip3 show bilibili-api-python 查询模块版本。-->
 

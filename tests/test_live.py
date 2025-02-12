@@ -48,13 +48,13 @@ async def test_i_get_self_info():
     return await live.get_self_info(get_credential())
 
 
-async def test_j_get_chat_conf():
-    return await l.get_chat_conf()
+async def test_j_get_danmu_info():
+    return await l.get_danmu_info()
 
 
 async def test_k_ban_user():
     try:
-        return await l.ban_user(1)
+        return await l.ban_user(1, 1)
     except ResponseCodeException as e:
         if e.code == 1200000:
             return e.raw
@@ -89,16 +89,6 @@ async def test_n_send_danmaku():
     return await l.send_danmaku(Danmaku(f"test_{random.randint(10000, 99999)}"))
 
 
-async def test_o_LiveDanmaku():
-    async def on_msg(data):
-        print(data)
-        await room.disconnect()
-
-    room = live.LiveDanmaku(22544798, True)
-    room.add_event_listener("ALL", on_msg)
-    await room.connect()
-
-
 async def test_p_sign_up_dahanghai():
     return await l.sign_up_dahanghai()
 
@@ -118,6 +108,10 @@ async def test_r_receive_reward():
 
 async def test_s_get_general_info():
     return await l.get_general_info()
+
+
+# async def test_update_news():
+#     return await l.update_news("hello\nit's me")
 
 
 async def test_t_get_self_live_info():
@@ -140,8 +134,8 @@ async def test_x_get_gift_common():
     return await l.get_gift_common()
 
 
-async def test_y_get_gift_sepcial():
-    return await l.get_gift_special(tab_id=2)
+# async def test_y_get_gift_sepcial():
+#     return await l.get_gift_special(tab_id=2)
 
 
 async def test_z_send_gift_gold():
@@ -185,3 +179,19 @@ async def test_ze_get_following_live():
         title="测试",
         start_time=round(time.time()) + (60 * 60 * 4),
     )
+
+
+async def test_zf_get_get_popular_ticket_num():
+    return await l.get_popular_ticket_num()
+
+
+async def test_zg_popular_rank_free_score_incr():
+    return await l.send_popular_ticket()
+
+
+async def test_zh_get_emoticons():
+    return await l.get_emoticons()
+
+
+async def test_zi_send_emoticon():
+    return await l.send_danmaku(Danmaku("official_147"))

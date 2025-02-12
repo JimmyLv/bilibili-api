@@ -1,7 +1,22 @@
 {
   "info": {
+    "login_log": {
+      "url": "https://api.bilibili.com/x/member/web/login/log",
+      "method": "GET",
+      "verify": true
+    },
+    "moral_log": {
+      "url": "https://api.bilibili.com/x/member/web/moral/log",
+      "method": "GET",
+      "verify": true
+    },
+    "exp_log": {
+      "url": "https://api.bilibili.com/x/member/web/exp/log",
+      "method": "GET",
+      "verify": true
+    },
     "name_to_uid": {
-      "url": "https://api.vc.bilibili.com/dynamic_mix/v1/dynamic_mix/name_to_uid",
+      "url": "https://api.bilibili.com/x/polymer/web-dynamic/v1/name-to-uid",
       "method": "GET",
       "verify": false,
       "params": {
@@ -31,8 +46,10 @@
       "method": "GET",
       "verify": false,
       "wbi": true,
+      "wbi2": true,
       "params": {
-        "mid": "int: uid"
+        "mid": "int: uid",
+        "w_webid": "str: w_webid"
       },
       "comment": "用户基本信息"
     },
@@ -63,16 +80,25 @@
       "params": {
         "vmid": "int: uid"
       },
+      "comment": "用户置顶视频"
+    },
+    "masterpiece": {
+      "url": "https://api.bilibili.com/x/space/masterpiece",
+      "method": "GET",
+      "verify": false,
+      "params": {
+        "vmid": "int: uid"
+      },
       "comment": "用户代表作"
     },
-    "relation": {
+    "relation_stat": {
       "url": "https://api.bilibili.com/x/relation/stat",
       "method": "GET",
       "verify": false,
       "params": {
         "vmid": "int: uid"
       },
-      "comment": "关注数，粉丝数"
+      "comment": "获取用户关系信息（关注数，粉丝数，悄悄关注，黑名单数）"
     },
     "upstat": {
       "url": "https://api.bilibili.com/x/space/upstat",
@@ -98,7 +124,8 @@
       "verify": false,
       "wbi": true,
       "params": {
-        "mid": "int: uid"
+        "mid": "int: uid",
+        "w_webid": "str: w_webid"
       },
       "comment": "直播间基本信息"
     },
@@ -107,15 +134,36 @@
       "method": "GET",
       "verify": false,
       "wbi": true,
+      "wbi2": true,
       "params": {
         "mid": "int: uid",
         "ps": "const int: 30",
         "tid": "int: 分区 ID，0 表示全部",
         "pn": "int: 页码",
         "keyword": "str: 关键词，可为空",
-        "order": "str: pubdate 上传日期，click 播放量，stow 收藏量"
+        "w_webid": "str: w_webid"
       },
       "comment": "搜索用户视频"
+    },
+    "media_list": {
+      "url": "https://api.bilibili.com/x/v2/medialist/resource/list",
+      "method": "GET",
+      "verify": false,
+      "wbi": true,
+      "params": {
+        "mobi_app": "str: 定值 web",
+        "type": "int: 视频类型，通过uid获取用户视频时为1",
+        "biz_id": "int: uid",
+        "oid": "int: 起始视频 aid， 默认为列表开头",
+        "otype": "int: oid类型， 接受任意值不影响结果",
+        "ps": "int: 每页视频数量， 最大为100",
+        "direction": "bool: 相对于给定oid的查询方向，true：向列表末尾方向，false：向列表开头方向",
+        "desc": "bool: 列表是否逆序排列",
+        "sort_field": "int: 用于排序的栏 1 发布时间，2 播放量，3 收藏量",
+        "tid": "int: 分区 ID，0 表示全部， 1 部分（未知），不接受2及以上",
+        "with_current": "bool: 返回的列表中是否包含给定oid自身"
+      },
+      "comment": "以medialist形式获取用户视频列表"
     },
     "reservation": {
       "url": "https://api.bilibili.com/x/space/reservation",
@@ -315,7 +363,7 @@
       "comment": "用户浏览历史记录"
     },
     "channel_list": {
-      "url": "https://api.bilibili.com/x/polymer/space/seasons_series_list",
+      "url": "https://api.bilibili.com/x/polymer/web-space/seasons_series_list",
       "method": "GET",
       "verify": false,
       "params": {
@@ -338,7 +386,7 @@
       "comment": "查看列表内视频（旧版）"
     },
     "channel_video_season": {
-      "url": "https://api.bilibili.com/x/polymer/space/seasons_archives_list",
+      "url": "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list",
       "method": "GET",
       "verify": false,
       "params": {
@@ -461,10 +509,33 @@
       "method": "GET",
       "verify": true,
       "params": {
-        "aid":"int: av 号",
+        "aid": "int: av 号",
         "vmid": "int: up uid 号"
       },
       "comment": "视频三连特效"
+    },
+    "relation": {
+      "url": "https://api.bilibili.com/x/space/wbi/acc/relation",
+      "method": "GET",
+      "params": {
+        "mid": "int: uid"
+      },
+      "verify": true,
+      "wbi": true,
+      "comment": "获取与某用户的关系"
+    },
+    "opus": {
+      "url": "https://api.bilibili.com/x/polymer/web-dynamic/v1/opus/feed/space",
+      "method": "GET",
+      "wbi": true,
+      "params": {
+        "host_mid": "int: uid",
+        "page": "int: 页码 非必要，且貌似对结果影响不大",
+        "offset": "int: 动态偏移用，第一页为空",
+        "type": "str: all / article / dynamic",
+        "web_location": "333.1387",
+        "w_webid":"str: w_webid"
+      }
     }
   },
   "operate": {

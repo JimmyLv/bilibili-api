@@ -3,7 +3,7 @@
     "start": {
       "url": "https://api.live.bilibili.com/room/v1/Room/startLive",
       "method": "POST",
-      "verify": false,
+      "verify": true,
       "params": {
         "room_id": "int: 房间号",
         "platform": "pc/web/...",
@@ -15,7 +15,7 @@
     "stop": {
       "url": "https://api.live.bilibili.com/room/v1/Room/stopLive",
       "method": "POST",
-      "verify": false,
+      "verify": true,
       "params": {
         "room_id": "int: 房间号",
         "platform": "pc/web/...",
@@ -32,12 +32,22 @@
       },
       "comment": "获取房间信息（真实房间号，封禁情况等）"
     },
-    "chat_conf": {
-      "url": "https://api.live.bilibili.com/room/v1/Danmu/getConf",
+    "emoticons": {
+      "url": "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons",
+      "method": "GET",
+      "verify": true,
+      "params": {
+        "platform": "const str: pc",
+        "room_id": "int: 房间号"
+      },
+      "comment": "获取当前用户在本房间可用的表情包"
+    },
+    "danmu_info": {
+      "url": "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
       "method": "GET",
       "verify": false,
       "params": {
-        "room_id": "int: 真实房间号"
+        "id": "int: 真实房间号"
       },
       "comment": "获取聊天弹幕服务器配置信息(websocket)"
     },
@@ -141,6 +151,19 @@
       },
       "comment": "获取自己在当前房间的大航海信息, 是否开通，等级，当前经验，同时可获得自己开通的所有航海日志"
     },
+    "update_news": {
+      "url": "https://api.live.bilibili.com/xlive/app-blink/v1/index/updateRoomNews",
+      "method": "POST",
+      "verify": true,
+      "params": {
+        "roomId": "真实房间号",
+        "uid": "直播者uid",
+        "content": "内容, 最多60字符",
+        "csrf": "csrf",
+        "csrf_token": "csrf"
+      },
+      "comment": "更新房间公告"
+    },
     "seven_rank": {
       "url": "https://api.live.bilibili.com/rankdb/v1/RoomRank/webSevenRank",
       "method": "GET",
@@ -198,6 +221,16 @@
         "ptype": "const int: 16"
       },
       "comment": "获取房间信息及可用清晰度列表"
+    },
+    "popular_ticket": {
+      "url": "https://api.live.bilibili.com/xlive/general-interface/v1/rank/getUserPopularTicketsNum",
+      "method": "GET",
+      "verify": true,
+      "params": {
+        "ruid": "int: 全称 room_uid，从 room_play_info 里头的uid可以找到",
+        "source": "const str: live"
+      },
+      "comment": "获取自己在该直播间的人气票信息"
     },
     "gift_common": {
       "url": "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/giftData",
@@ -274,9 +307,39 @@
         "msg": "str: 弹幕信息",
         "rnd": "int: 当前时间戳",
         "bubble": "int: 默认 0，功能不知",
+        "reply_mid": "int: uid",
         "csrf,csrf_token": "str: 要给两个"
       },
       "comment": "发送直播间弹幕，有的参数不确定因为自己不搞这块没权限发一些样式的弹幕"
+    },
+    "send_emoticon": {
+      "url": "https://api.live.bilibili.com/msg/send",
+      "method": "POST",
+      "verify": true,
+      "params": {
+        "roomid": "int: 真实房间号",
+        "color": "int: 十进制颜色，有权限限制",
+        "fontsize": "int: 字体大小，默认 25",
+        "mode": "int: 弹幕模式，1 飞行 5 顶部 4 底部",
+        "msg": "str: 表情包代号",
+        "rnd": "int: 当前时间戳",
+        "bubble": "int: 默认 0，功能不知",
+        "dm_type": "int: 默认 1，功能不知",
+        "emoticonOptions": " 默认 [object Object] 功能不知",
+        "csrf,csrf_token": "str: 要给两个"
+      },
+      "comment": "发送直播间弹幕，有的参数不确定因为自己不搞这块没权限发一些样式的弹幕"
+    },
+     "send_popular_ticket": {
+      "url": "https://api.live.bilibili.com/xlive/general-interface/v1/rank/popularRankFreeScoreIncr",
+      "method": "POST",
+      "verify": true,
+      "params": {
+        "ruid": "int: 全称 room_uid，从 room_play_info 里头的 uid 可以找到",
+        "csrf,csrf_token": "要给两个",
+        "visit_id": "str: 空"
+      },
+      "comment": "在直播间中赠送所有免费人气票"
     },
     "add_block": {
       "url": "https://api.live.bilibili.com/xlive/web-ucenter/v1/banned/AddSilentUser",
@@ -286,18 +349,18 @@
         "room_id": "int: 真实房间号",
         "tuid": "int: 封禁用户 UID",
         "mobile_app": "str: 设备类型",
+        "hour": "int: 禁言小时数， -1永久，0本场",
         "visit_id": "str: 空"
       },
       "comment": "封禁用户"
     },
     "del_block": {
-      "url": "https://api.live.bilibili.com/banned_service/v1/Silent/del_room_block_user",
+      "url": "https://api.live.bilibili.com/xlive/web-ucenter/v1/banned/DelSilentUser",
       "method": "POST",
       "verify": true,
       "params": {
-        "roomid": "int: 真实房间号",
-        "id": "int: 封禁 ID，从 ID.info.black_list 中获取或者 ID.operate.black_list 的返回值获取",
-        "visit_id": "str: 空"
+        "room_id": "int: 真实房间号",
+        "tuid": "int: 封禁用户 UID"
       },
       "comment": "解封用户"
     },

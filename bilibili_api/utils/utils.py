@@ -4,12 +4,16 @@ bilibili_api.utils.utils
 通用工具库。
 """
 
-import os
 import json
+import os
+import random
 from typing import List, TypeVar
+from ..exceptions import StatementException
+from datetime import datetime
+from urllib.parse import quote
 
 
-def get_api(field: str) -> dict:
+def get_api(field: str, *args) -> dict:
     """
     获取 API。
 
@@ -26,7 +30,10 @@ def get_api(field: str) -> dict:
     )
     if os.path.exists(path):
         with open(path, encoding="utf8") as f:
-            return json.loads(f.read())
+            data = json.load(f)
+            for arg in args:
+                data = data[arg]
+            return data
     else:
         return {}
 
@@ -137,7 +144,7 @@ def join(seperator: str, array: list):
 
     Args:
         seperator (str) : 分隔字符
-        
+
         array     (list): 数组
 
     Returns:
@@ -167,3 +174,74 @@ def chunk(arr: ChunkT, size: int) -> List[ChunkT]:
         result.append(temp)
 
     return result
+
+
+def get_deviceid(separator: str = "-", is_lowercase: bool = False) -> str:
+    """
+    获取随机 deviceid (dev_id)
+
+    Args:
+        separator (str)  : 分隔符 默认为 "-"
+
+        is_lowercase (bool) : 是否以小写形式 默认为False
+
+    参考: https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/docs/message/private_msg.md#发送私信web端
+
+    Returns:
+        str: device_id
+    """
+    template = ["xxxxxxxx", "xxxx", "4xxx", "yxxx", "xxxxxxxxxxxx"]
+    dev_id_group = []
+    for i in range(len(template)):
+        s = ""
+        group = template[i]
+        for k in group:
+            rand: int = int(16 * random.random())
+            if k in "xy":
+                if k == "x":
+                    s += hex(rand)[2:]
+                else:
+                    s += hex(3 & rand | 8)[2:]
+            else:
+                s += "4"
+        dev_id_group.append(s)
+    res = join(separator, dev_id_group)
+    return res if is_lowercase else res.upper()
+
+
+def raise_for_statement(statement: bool, msg: str = "未满足条件") -> None:
+    if not statement:
+        raise StatementException(msg=msg)
+
+
+def to_form_urlencoded(data: dict) -> str:
+    temp = []
+    for [k, v] in data.items():
+        temp.append(f'{k}={quote(str(v)).replace("/", "%2F")}')
+
+    return "&".join(temp)
+
+
+def to_timestamps(time_start, time_end):
+    """
+    将两个日期字符串转换为整数时间戳 (int) 元组，并验证时间顺序。
+
+    Returns:
+        tuple: (int,int)
+    """
+    try:
+        # 将输入字符串解析为 datetime 对象
+        start_dt = datetime.strptime(time_start, "%Y-%m-%d")
+        end_dt = datetime.strptime(time_end, "%Y-%m-%d")
+
+        # 验证起始时间是否早于结束时间
+        if start_dt >= end_dt:
+            raise ValueError("起始时间必须早于结束时间。")
+
+        # 转换为时间戳并返回
+        return int(start_dt.timestamp()), int(end_dt.timestamp())
+    except ValueError as e:
+        # 捕获日期格式错误或自定义错误消息
+        raise ValueError(
+            f"输入错误: {e}. 请确保使用 'YYYY-MM-DD' 格式，并且起始时间早于结束时间。"
+        )

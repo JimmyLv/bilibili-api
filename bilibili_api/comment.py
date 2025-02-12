@@ -5,19 +5,18 @@ bilibili_api.comment
 
 关于资源 ID（oid）的一些示例（{}部分为应该传入的参数）。
 
-+ 视频：AV 号：av{170001}。
-+ 专栏：cv{9762979}。
-+ 动态（画册类型）：{116859542}。
-+ 动态（纯文本）：{497080393649439253}。
-+ 课程：ep{5556}
-+ 小黑屋: ban/{2600321}
++ 视频：AV 号：av{170001} `get_aid() / await get_aid() # for Episode`。
++ 专栏：cv{9762979} `get_cvid()`。
++ 动态/图文：{116859542} `await get_rid()`。
++ 课程：ep{5556} `get_epid()`
++ 小黑屋: ban/{2600321} `get_id()`
 """
+
 from enum import Enum
-from typing import Union
+from typing import Union, Optional
 
 from .utils.utils import get_api
-from .utils.credential import Credential
-from .utils.network import Api
+from .utils.network import Api, Credential
 from .exceptions.ArgsException import ArgsException
 
 API = get_api("common")
@@ -29,7 +28,7 @@ class CommentResourceType(Enum):
 
     + VIDEO: 视频。
     + ARTICLE: 专栏。
-    + DYNAMIC_DRAW: 画册。
+    + DYNAMIC_DRAW: 画册（图文）。
     + DYNAMIC: 动态（画册也属于动态的一种，只不过画册还有一个专门的 ID）。
     + AUDIO：音频。
     + AUDIO_LIST：歌单。
@@ -61,6 +60,50 @@ class OrderType(Enum):
     TIME = 0
 
 
+class ReportReason(Enum):
+    """
+    举报类型枚举
+
+    + OTHER: 其他
+    + SPAM_AD: 垃圾广告
+    + PORNOGRAPHY: 色情
+    + FLOOD: 刷屏
+    + PROVOCATION: 引战
+    + SPOILER: 剧透
+    + POLITICS: 政治
+    + PERSONAL_ATTACK: 人身攻击
+    + IRRELEVANT_CONTENT: 内容不相关
+    + ILLEGAL: 违法违规
+    + VULGAR: 低俗
+    + ILLEGAL_WEBSITE: 非法网站
+    + GAMBLING_FRAUD: 赌博诈骗
+    + SPREADING_FALSE_INFORMATION: 传播不实信息
+    + INCITING_INFORMATION: 怂恿教唆信息
+    + PRIVACY_VIOLATION: 侵犯隐私
+    + FLOOR_TAKING: 抢楼
+    + INAPPROPRIATE_CONTENT_FOR_MINORS: 青少年不良信息
+    """
+
+    OTHER = 0
+    SPAM_AD = 1
+    PORNOGRAPHY = 2
+    FLOOD = 3
+    PROVOCATION = 4
+    SPOILER = 5
+    POLITICS = 6
+    PERSONAL_ATTACK = 7
+    IRRELEVANT_CONTENT = 8
+    ILLEGAL = 9
+    VULGAR = 10
+    ILLEGAL_WEBSITE = 11
+    GAMBLING_FRAUD = 12
+    SPREADING_FALSE_INFORMATION = 13
+    INCITING_INFORMATION = 14
+    PRIVACY_VIOLATION = 15
+    FLOOR_TAKING = 16
+    INAPPROPRIATE_CONTENT_FOR_MINORS = 17
+
+
 class Comment:
     """
     对单条评论的相关操作。
@@ -89,7 +132,7 @@ class Comment:
         self.__oid = oid
         self.__rpid = rpid
         self.__type = type_
-        self.credential = credential if credential else Credential()
+        self.credential: Credential = credential if credential else Credential()
 
     def __get_data(self, status: bool) -> dict:
         """
@@ -109,12 +152,30 @@ class Comment:
         }
 
     def get_rpid(self) -> int:
+        """
+        获取评论 rpid
+
+        Returns:
+            int: rpid
+        """
         return self.__rpid
 
     def get_type(self) -> CommentResourceType:
+        """
+        获取评论资源类型
+
+        Returns:
+            CommentResourceType: 资源类型
+        """
         return self.__type
 
     def get_oid(self) -> int:
+        """
+        获取评论对应 oid
+
+        Returns:
+            int: oid
+        """
         return self.__oid
 
     async def like(self, status: bool = True) -> dict:
@@ -194,12 +255,13 @@ class Comment:
         del data["action"]
         return await Api(**api, credential=self.credential).update_data(**data).result
 
-    async def get_sub_comments(self, page_index: int = 1) -> dict:
+    async def get_sub_comments(self, page_index: int = 1, page_size: int = 10) -> dict:
         """
         获取子评论。即评论下的评论。
 
         Args:
             page_index (int, optional):  页码索引，从 1 开始。Defaults to 1.
+            page_size (int, optional):  每页评论数。设置大于20的数值不会起作用。Defaults to 10.
 
         Returns:
             dict: 调用 API 返回的结果
@@ -210,7 +272,7 @@ class Comment:
         api = API["comment"]["sub_reply"]
         params = {
             "pn": page_index,
-            "ps": 10,
+            "ps": page_size,
             "type": self.__type.value,
             "oid": self.__oid,
             "root": self.__rpid,
@@ -219,6 +281,56 @@ class Comment:
         return (
             await Api(**api, credential=self.credential).update_params(**params).result
         )
+
+    async def report(
+        self, report_reason: ReportReason, content: Optional[str] = None
+    ) -> dict:
+        """
+        举报评论
+
+        Args:
+            report_reason (ReportReason): 举报类型枚举
+
+            content (str, optional): 其他举报备注内容仅 reason=ReportReason.OTHER 可用且不能为 None.
+
+        Returns:
+            dict: 调用 API 返回的结果
+
+        Error Code:
+            0: 成功
+            -101: 账号未登录
+            -102: 账号被封停
+            -111: csrf校验失败
+            -400: 请求错误
+            -403: 权限不足
+            -404: 无此项
+            -500: 服务器错误
+            -509: 请求过于频繁
+            12002: 评论区已关闭
+            12006: 没有该评论
+            12008: 已经举报过了
+            12009: 评论主体的type不合法
+            12019: 举报过于频繁
+            12077: 举报理由过长或过短
+        """
+
+        self.credential.raise_for_no_sessdata()
+
+        api = API["comment"]["report"]
+        if content is not None and report_reason != ReportReason.OTHER:
+            raise ArgsException(
+                "content 只能在 report_reason=ReportReason.OTHER 时使用"
+            )
+        elif content is None and report_reason == ReportReason.OTHER:
+            raise ArgsException("report_reason=ReportReason.OTHER 时 content 不能为空")
+        data = {
+            "oid": self.__oid,
+            "type": self.__type.value,
+            "rpid": self.__rpid,
+            "reason": report_reason.value,
+            "content": content,
+        }
+        return await Api(**api, credential=self.credential).update_data(**data).result
 
 
 async def send_comment(
@@ -298,6 +410,8 @@ async def get_comments(
     """
     获取资源评论列表。
 
+    第二页以及往后需要提供 `credential` 参数。
+
     Args:
         oid        (int)                 : 资源 ID。
 
@@ -323,19 +437,21 @@ async def get_comments(
 async def get_comments_lazy(
     oid: int,
     type_: CommentResourceType,
-    pagination_str: str = "",
+    offset: str = "",
     order: OrderType = OrderType.TIME,
     credential: Union[Credential, None] = None,
 ) -> dict:
     """
     新版获取资源评论列表。
 
+    第二次以及往后需要提供 `credential` 参数。
+
     Args:
         oid        (int)                 : 资源 ID。
 
         type_      (CommentsResourceType)        : 资源类枚举。
 
-        pagination_str (str, optional)       : 分页依据 Defaults to `{"offset":""}`.
+        offset (str, optional)       : 偏移量。每次请求可获取下次请求对应的偏移量，类似单向链表。对应返回结果的 `["cursor"]["pagination_reply"]["next_offset"]`
 
         order      (OrderType, optional) : 排序方式枚举. Defaults to OrderType.TIME.
 
@@ -344,11 +460,15 @@ async def get_comments_lazy(
     Returns:
         dict: 调用 API 返回的结果
     """
+    offset = offset.replace('"', '\\"')
+    offset = '{"offset":"' + offset + '"}'
+    old_to_new = {0: 2, 2: 3}
     api = API["comment"]["reply_by_session_id"]
     params = {
         "oid": oid,
         "type": type_.value,
-        "mode": order.value,
-        "pagination_str": '{"offset": "%s"}' % pagination_str.replace('"', r"\""),
+        "mode": old_to_new[order.value],
+        "pagination_str": offset,
+        "web_location": "1315875",
     }
     return await Api(**api, credential=credential).update_params(**params).result

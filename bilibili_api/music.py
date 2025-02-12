@@ -10,8 +10,7 @@ from enum import Enum
 from typing import Optional
 
 from .utils.utils import get_api
-from .utils.credential import Credential
-from .utils.network import Api
+from .utils.network import Api, Credential
 
 API_audio = get_api("audio")
 API = get_api("music")
@@ -173,7 +172,13 @@ class Music:
         """
         self.__music_id = music_id
 
-    def get_music_id(self):
+    def get_music_id(self) -> str:
+        """
+        获取音乐 id
+
+        Returns:
+            str: 音乐 id
+        """
         return self.__music_id
 
     async def get_info(self):

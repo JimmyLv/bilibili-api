@@ -3,7 +3,9 @@ bilibili_api.ass
 
 有关 ASS 文件的操作
 """
+
 import os
+import json
 from tempfile import gettempdir
 from typing import Union, Optional
 
@@ -11,11 +13,36 @@ from .video import Video
 from .bangumi import Episode
 from .cheese import CheeseVideo
 from .utils.srt2ass import srt2ass
-from .utils.json2srt import json2srt
-from .utils.credential import Credential
 from .utils.danmaku2ass import Danmaku2ASS
-from .utils.network import get_session
+from .utils.network import Api, Credential
 from .exceptions.ArgsException import ArgsException
+
+
+def json2srt(input_path: str, output_path: str):
+    data = json.load(open(input_path, "r"))
+    with open(output_path, "w+") as file:
+        for cnt, comment in enumerate(data["body"]):
+            file.write(
+                "{}\n{}:{}:{},{} --> {}:{}:{},{}\n{}\n\n".format(
+                    cnt + 1,
+                    str(int(comment["from"]) // 3600).zfill(2),
+                    str(int(comment["from"]) // 60 % 60).zfill(2),
+                    str(int(comment["from"]) % 60).zfill(2),
+                    str(
+                        int(round(comment["from"] - int(comment["from"]), 2) * 100)
+                    ).zfill(2),
+                    str(int(comment["to"] - 0.01) // 3600).zfill(2),
+                    str(int(comment["to"] - 0.01) // 60 % 60).zfill(2),
+                    str(int(comment["to"] - 0.01) % 60).zfill(2),
+                    str(
+                        int(
+                            round(comment["to"] - 0.01 - int(comment["to"] - 0.01), 2)
+                            * 100
+                        )
+                    ).zfill(2),
+                    comment["content"],
+                )
+            )
 
 
 def export_ass_from_xml(
@@ -91,7 +118,7 @@ async def make_ass_file_subtitle(
     out: Optional[str] = "test.ass",
     lan_name: Optional[str] = "中文（自动生成）",
     lan_code: Optional[str] = "ai-zh",
-    credential: Credential = Credential(),
+    credential: Optional[Credential] = None,
 ) -> None:
     """
     生成视频字幕文件
@@ -109,13 +136,14 @@ async def make_ass_file_subtitle(
 
         lan_code   (str, optional)       : 字幕语言代码，如 ”中文（自动翻译）” 和 ”中文（自动生成）“ 为 "ai-zh"
 
-        credential (Credential)          : Credential 类. 必须在此处或传入的视频 obj 中传入凭据，两者均存在则优先此处
+        credential (Credential, optional): Credential 类. 必须在此处或传入的视频 obj 中传入凭据，两者均存在则优先此处
     """
     # 目测必须得有 Credential 才能获取字幕
+    credential = credential if credential else Credential()
     if credential.has_sessdata():
         obj.credential = credential
     elif not obj.credential.has_sessdata():
-        raise credential.raise_for_no_sessdata()
+        credential.raise_for_no_sessdata()
 
     if isinstance(obj, Episode):
         info = await obj.get_player_info(cid=await obj.get_cid(), epid=obj.get_epid())
@@ -131,13 +159,13 @@ async def make_ass_file_subtitle(
             url = subtitle["subtitle_url"]
             if isinstance(obj, Episode) or "https:" not in url:
                 url = "https:" + url
-            req = await get_session().request("GET", url)
+            req = await Api(url=url, method="GET").request(raw=True)
             file_dir = gettempdir() + "/" + "subtitle.json"
-            with open(file_dir, "wb") as f:
-                f.write(req.content)
+            with open(file_dir, "w+") as f:
+                f.write(json.dumps(req))
             export_ass_from_json(file_dir, out)
             return
-    raise ValueError("没有找到指定字幕")
+    raise ArgsException("没有找到指定字幕")
 
 
 async def make_ass_file_danmakus_protobuf(
@@ -145,7 +173,6 @@ async def make_ass_file_danmakus_protobuf(
     page: int = 0,
     out="test.ass",
     cid: Union[int, None] = None,
-    credential: Union[Credential, None] = None,
     date=None,
     font_name="Simsun",
     font_size=25.0,
@@ -167,8 +194,6 @@ async def make_ass_file_danmakus_protobuf(
 
         cid         (int | None, optional)                   : cid. Defaults to None.
 
-        credential  (Credential | None, optional)            : 凭据. Defaults to None.
-
         date        (datetime.date, optional)                : 获取时间. Defaults to None.
 
         font_name   (str, optional)                          : 字体. Defaults to "Simsun".
@@ -181,9 +206,6 @@ async def make_ass_file_danmakus_protobuf(
 
         static_time (float, optional)                        : 静态弹幕持续时间. Defaults to 5.
     """
-    credential = credential if credential else Credential()
-    if date:
-        credential.raise_for_no_sessdata()
     if isinstance(obj, Video):
         v = obj
         if isinstance(obj, Episode):
@@ -193,7 +215,7 @@ async def make_ass_file_danmakus_protobuf(
                 if page is None:
                     raise ArgsException("page_index 和 cid 至少提供一个。")
                 # type: ignore
-                cid = await v._Video__get_page_id_by_index(page)
+                cid = await v._Video__get_cid_by_index(page)
         try:
             info = await v.get_info()
         except:
@@ -213,7 +235,7 @@ async def make_ass_file_danmakus_protobuf(
         stage_size = (1440, 1080)
         danmakus = await obj.get_danmakus()
     else:
-        raise ValueError("请传入 Video/Episode/CheeseVideo 类！")
+        raise ArgsException("请传入 Video/Episode/CheeseVideo 类！")
     with open(gettempdir() + "/danmaku_temp.xml", "w+", encoding="utf-8") as file:
         file.write("<i>")
         for d in danmakus:
@@ -274,7 +296,7 @@ async def make_ass_file_danmakus_xml(
             if cid is None:
                 if page is None:
                     raise ArgsException("page_index 和 cid 至少提供一个。")
-                cid = await v._Video__get_page_id_by_index(page)  # type: ignore
+                cid = await v._Video__get_cid_by_index(page)  # type: ignore
         try:
             info = await v.get_info()
         except:
@@ -294,7 +316,7 @@ async def make_ass_file_danmakus_xml(
         stage_size = (1440, 1080)
         xml_content = await obj.get_danmaku_xml()
     else:
-        raise ValueError("请传入 Video/Episode/CheeseVideo 类！")
+        raise ArgsException("请传入 Video/Episode/CheeseVideo 类！")
     with open(gettempdir() + "/danmaku_temp.xml", "w+", encoding="utf-8") as file:
         file.write(xml_content)
     export_ass_from_xml(

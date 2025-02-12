@@ -1,47 +1,81 @@
 # Module homepage.py
 
-```python
+
+bilibili_api.homepage
+
+主页相关操作。
+
+
+``` python
 from bilibili_api import homepage
 ```
 
-主页相关操作。
+- [async def get\_links()](#async-def-get\_links)
+- [async def get\_popularize()](#async-def-get\_popularize)
+- [async def get\_top\_photo()](#async-def-get\_top\_photo)
+- [async def get\_videos()](#async-def-get\_videos)
+
+---
+
+## async def get_links()
+
+获取主页左面的链接。
+可能和个人喜好有关。
+
+
+| name | type | description |
+| - | - | - |
+| `credential` | `Credential \| None` | 凭据类 |
+
+**Returns:** `dict`:  调用 API 返回的结果
+
+
+
+
+---
+
+## async def get_popularize()
+
+获取推广的项目。
+(有视频有广告)
+
+
+| name | type | description |
+| - | - | - |
+| `credential` | `Credential \| None` | 凭据类 |
+
+**Returns:** `dict`:  调用 API 返回的结果
+
+
+
+
+---
 
 ## async def get_top_photo()
 
 获取主页最上方的图像。
 例如：b 站的风叶穿行，通过这个 API 获取的图片就是风叶穿行的图片。
 
-**Returns:** 调用 API 返回的结果。
 
 
-## async def get_links()
+**Returns:** `dict`:  调用 API 返回的结果。
 
-| name | type | description |
-| - | - | - |
-| credential | Credential \| None | 凭据类 |
 
-获取主页左面的链接。
-可能和个人喜好有关。
 
-**Returns:** 调用 API 返回的结果
 
-## async def get_popularize()
-
-| name | type | description |
-| - | - | - |
-| credential | Credential \| None | 凭据类 |
-
-获取推广的项目。
-~~有视频有广告~~
-
-**Returns:** 调用 API 返回的结果
+---
 
 ## async def get_videos()
 
-| name | type | description |
-| - | - | - |
-| credential | Credential \| None | 凭据类 |
-
 获取首页推荐的视频。
 
-**Returns:** 调用 API 返回的结果
+
+| name | type | description |
+| - | - | - |
+| `credential` | `Credential \| None` | 凭据类 |
+
+**Returns:** `dict`:  调用 API 返回的结果
+
+
+
+

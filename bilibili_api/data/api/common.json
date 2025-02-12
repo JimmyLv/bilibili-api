@@ -17,7 +17,7 @@
       "verify": true,
       "data": {
         "oid": "int: 各种类型 id",
-        "type": "int: 1 视频，12 专栏，11 画册动态，17 文字动态，14 音频，19 歌单。下同。",
+        "type": "int: 1 视频，12 专栏，11 画册（图文）动态，17 文字动态，14 音频，19 歌单。下同。",
         "message": "str: 评论内容",
         "plat": "const int: 1",
         "root": "int: 根评论 rpid，即在谁的评论下面回复，为空时在 oid 下直接评论",
@@ -119,9 +119,25 @@
         "oid": "int: id",
         "type": "",
         "mode": "int: 默认为 3。0 3：仅按热度 1：按热度+按时间 2：仅按时间",
-        "pagination_str": "str: 分页依据"
+        "pagination_str": "str: 分页依据",
+        "next": "int: 页码 0 第一页",
+        "ps": "const int: 1~30"
       },
       "comment": "新版评论区"
+    },
+    "report": {
+      "url": "https://api.bilibili.com/x/v2/reply/report",
+      "method": "POST",
+      "verify": true,
+      "data": {
+        "type": "num: 评论区类型代码，必要。类型代码见 https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/docs/comment/readme.md#%E8%AF%84%E8%AE%BA%E5%8C%BA%E7%B1%BB%E5%9E%8B%E4%BB%A3%E7%A0%81",
+        "oid": "int: 目标评论区id，必要",
+        "rpid": "int: 目标评论rpid，必要",
+        "reason": "int: 举报原因，见 https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/docs/comment/action.md#%E4%B8%BE%E6%8A%A5%E8%AF%84%E8%AE%BA",
+        "content": "str: 其他举报备注内容",
+        "csrf": "str: CSRF Token（位于cookie），Cookie方式必要"
+      },
+      "comment": "举报评论"
     }
   },
   "dynamic_share": {

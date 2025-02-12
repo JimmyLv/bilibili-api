@@ -4,29 +4,50 @@ bilibili_api.note
 笔记相关
 """
 
-import re
 import json
 from enum import Enum
 from html import unescape
 from typing import List, Union, overload
 
 import yaml
-import httpx
 from yarl import URL
 
-from bilibili_api.utils.initial_state import get_initial_state
+from .utils.initial_state import get_initial_state
 
-from .utils.utils import get_api
+from .utils.utils import get_api, raise_for_statement
 from .utils.picture import Picture
-from .utils.credential import Credential
 from .exceptions import ApiException, ArgsException
-from .utils.network import Api, get_session
+from .utils.network import Api, Credential
+from .utils import cache_pool
+from . import article
 
 API = get_api("note")
 API_ARTICLE = get_api("article")
 
 
+async def upload_image(img: Picture, credential: Credential) -> dict:
+    """
+    上传笔记图片
+
+    Args:
+        img        (Picture)   : 图片
+        credential (Credential): 凭据类
+
+    Returns:
+        dict: 调用 API 返回的结果
+    """
+    credential.raise_for_no_sessdata()
+    credential.raise_for_no_bili_jct()
+    api = API["operate"]["upload_img"]
+    files = {"file": img._to_biliapifile()}
+    return await Api(**api, credential=credential).update_files(**files).result
+
+
 class NoteType(Enum):
+    """
+    笔记类型
+    """
+
     PUBLIC = "public"
     PRIVATE = "private"
 
@@ -89,13 +110,41 @@ class Note:
         self.__meta: dict = {}
 
     def get_cvid(self) -> int:
+        """
+        获取公开笔记 cvid
+
+        Returns:
+            int: 公开笔记 cvid
+        """
         return self.__cvid
 
     def get_aid(self) -> int:
+        """
+        获取私有笔记对应视频 aid
+
+        Returns:
+            int: aid
+        """
         return self.__oid
 
     def get_note_id(self) -> int:
+        """
+        获取私有笔记 note_id
+
+        Returns:
+            int: note_id
+        """
         return self.__note_id
+
+    def turn_to_article(self) -> "article.Article":
+        """
+        将笔记类转为专栏类。需要保证笔记是公开笔记。
+
+        Returns:
+            Note: 专栏类
+        """
+        raise_for_statement(self.__type == NoteType.PUBLIC)
+        return article.Article(cvid=self.get_cvid(), credential=self.credential)
 
     async def get_info(self) -> dict:
         """
@@ -127,7 +176,7 @@ class Note:
         Returns:
             dict: 调用 API 返回的结果。
         """
-        assert self.__type == NoteType.PRIVATE
+        raise_for_statement(self.__type == NoteType.PRIVATE)
 
         api = API["private"]["detail"]
         # oid 为 0 时指 avid
@@ -147,7 +196,7 @@ class Note:
             dict: 调用 API 返回的结果。
         """
 
-        assert self.__type == NoteType.PUBLIC
+        raise_for_statement(self.__type == NoteType.PUBLIC)
 
         api = API["public"]["detail"]
         params = {"cvid": self.get_cvid()}
@@ -156,6 +205,7 @@ class Note:
         )
         # 存入 self.__info 中以备后续调用
         self.__info = resp
+        cache_pool.article_is_note[self.__cvid] = True
         return resp
 
     async def get_images_raw_info(self) -> List["dict"]:
@@ -186,7 +236,7 @@ class Note:
         result = []
         images_raw_info = await self.get_images_raw_info()
         for image in images_raw_info:
-            result.append(Picture().from_url(url=f'https:{image["url"]}'))
+            result.append(await Picture().load_url(url=f'https:{image["url"]}'))
         return result
 
     async def get_all(self) -> dict:
@@ -198,7 +248,7 @@ class Note:
         Returns:
             dict: 调用 API 返回的结果
         """
-        assert self.__type == NoteType.PUBLIC
+        raise_for_statement(self.__type == NoteType.PUBLIC)
         return await get_initial_state(f"https://www.bilibili.com/read/cv{self.__cvid}")
 
     async def set_like(self, status: bool = True) -> dict:
@@ -213,7 +263,7 @@ class Note:
         Returns:
             dict: 调用 API 返回的结果
         """
-        assert self.__type == NoteType.PUBLIC
+        raise_for_statement(self.__type == NoteType.PUBLIC)
 
         self.credential.raise_for_no_sessdata()
 
@@ -233,7 +283,7 @@ class Note:
         Returns:
             dict: 调用 API 返回的结果
         """
-        assert self.__type == NoteType.PUBLIC
+        raise_for_statement(self.__type == NoteType.PUBLIC)
 
         self.credential.raise_for_no_sessdata()
 
@@ -255,7 +305,7 @@ class Note:
         Returns:
             dict: 调用 API 返回的结果
         """
-        assert self.__type == NoteType.PUBLIC
+        raise_for_statement(self.__type == NoteType.PUBLIC)
 
         self.credential.raise_for_no_sessdata()
 
@@ -271,19 +321,10 @@ class Note:
         该返回不会返回任何值，调用该方法后请再调用 `self.markdown()` 或 `self.json()` 来获取你需要的值。
         """
 
-        def parse_note(data: List[dict]):
+        async def parse_note(data: List[dict]):
             for field in data:
                 if not isinstance(field["insert"], str):
-                    if "tag" in field["insert"].keys():
-                        node = VideoCardNode()
-                        node.aid = json.loads(
-                            httpx.get(
-                                "https://hd.biliplus.com/api/cidinfo?cid="
-                                + str(field["insert"]["tag"]["cid"])
-                            ).text
-                        )["data"]["cid"]
-                        self.__children.append(node)
-                    elif "imageUpload" in field["insert"].keys():
+                    if "imageUpload" in field["insert"].keys():
                         node = ImageNode()
                         node.url = field["insert"]["imageUpload"]["url"]
                         self.__children.append(node)
@@ -291,8 +332,6 @@ class Note:
                         node = ImageNode()
                         node.url = field["insert"]["cut-off"]["url"]
                         self.__children.append(node)
-                    else:
-                        raise Exception()
                 else:
                     node = TextNode(field["insert"])
                     if "attributes" in field.keys():
@@ -328,7 +367,7 @@ class Note:
         info = await self.get_info()
         content = info["content"]
         content = unescape(content)
-        parse_note(json.loads(content))
+        await parse_note(json.loads(content))
         self.__has_parsed = True
         self.__meta = await self.__get_info_cached()
         del self.__meta["content"]
@@ -393,74 +432,6 @@ class Node:
         pass
 
 
-class ParagraphNode(Node):
-    def __init__(self):
-        self.children = []
-        self.align = "left"
-
-    def markdown(self):
-        content = "".join([node.markdown() for node in self.children])
-        return content + "\n\n"
-
-    def json(self):
-        return {
-            "type": "ParagraphNode",
-            "children": list(map(lambda x: x.json(), self.children)),
-        }
-
-
-class HeadingNode(Node):
-    def __init__(self):
-        self.children = []
-
-    def markdown(self):
-        text = "".join([node.markdown() for node in self.children])
-        if len(text) == 0:
-            return ""
-        return f"## {text}\n\n"
-
-    def json(self):
-        return {
-            "type": "HeadingNode",
-            "children": list(map(lambda x: x.json(), self.children)),
-        }
-
-
-class BlockquoteNode(Node):
-    def __init__(self):
-        self.children = []
-
-    def markdown(self):
-        t = "".join([node.markdown() for node in self.children])
-        # 填补空白行的 > 并加上标识符
-        t = "\n".join(["> " + line for line in t.split("\n")]) + "\n\n"
-
-        return t
-
-    def json(self):
-        return {
-            "type": "BlockquoteNode",
-            "children": list(map(lambda x: x.json(), self.children)),
-        }
-
-
-class ItalicNode(Node):
-    def __init__(self):
-        self.children = []
-
-    def markdown(self):
-        text = "".join([node.markdown() for node in self.children])
-        if len(text) == 0:
-            return ""
-        return f" *{text}*"
-
-    def json(self):
-        return {
-            "type": "ItalicNode",
-            "children": list(map(lambda x: x.json(), self.children)),
-        }
-
-
 class BoldNode(Node):
     def __init__(self):
         self.children = []
@@ -504,51 +475,6 @@ class UnderlineNode(Node):
         if len(text) == 0:
             return ""
         return " $\\underline{" + text + "}$ "
-
-
-class UlNode(Node):
-    def __init__(self):
-        self.children = []
-
-    def markdown(self):
-        return "\n".join(["- " + node.markdown() for node in self.children])
-
-    def json(self):
-        return {
-            "type": "UlNode",
-            "children": list(map(lambda x: x.json(), self.children)),
-        }
-
-
-class OlNode(Node):
-    def __init__(self):
-        self.children = []
-
-    def markdown(self):
-        t = []
-        for i, node in enumerate(self.children):
-            t.append(f"{i + 1}. {node.markdown()}")
-        return "\n".join(t)
-
-    def json(self):
-        return {
-            "type": "OlNode",
-            "children": list(map(lambda x: x.json(), self.children)),
-        }
-
-
-class LiNode(Node):
-    def __init__(self):
-        self.children = []
-
-    def markdown(self):
-        return "".join([node.markdown() for node in self.children])
-
-    def json(self):
-        return {
-            "type": "LiNode",
-            "children": list(map(lambda x: x.json(), self.children)),
-        }
 
 
 class ColorNode(Node):
@@ -612,137 +538,3 @@ class ImageNode(Node):
         if URL(self.url).scheme == "":
             self.url = "https:" + self.url
         return {"type": "ImageNode", "url": self.url, "alt": self.alt}
-
-
-class LatexNode(Node):
-    def __init__(self):
-        self.code = ""
-
-    def markdown(self):
-        if "\n" in self.code:
-            # 块级公式
-            return f"$$\n{self.code}\n$$"
-        else:
-            # 行内公式
-            return f"${self.code}$"
-
-    def json(self):
-        return {"type": "LatexNode", "code": self.code}
-
-
-class CodeNode(Node):
-    def __init__(self):
-        self.code = ""
-        self.lang = ""
-
-    def markdown(self):
-        return f"```{self.lang if self.lang else ''}\n{self.code}\n```\n\n"
-
-    def json(self):
-        return {"type": "CodeNode", "code": self.code, "lang": self.lang}
-
-
-# 卡片
-
-
-class VideoCardNode(Node):
-    def __init__(self):
-        self.aid = 0
-
-    def markdown(self):
-        return f"[视频 av{self.aid}](https://www.bilibili.com/av{self.aid})\n\n"
-
-    def json(self):
-        return {"type": "VideoCardNode", "aid": self.aid}
-
-
-class ArticleCardNode(Node):
-    def __init__(self):
-        self.cvid = 0
-
-    def markdown(self):
-        return f"[文章 cv{self.cvid}](https://www.bilibili.com/read/cv{self.cvid})\n\n"
-
-    def json(self):
-        return {"type": "ArticleCardNode", "cvid": self.cvid}
-
-
-class BangumiCardNode(Node):
-    def __init__(self):
-        self.epid = 0
-
-    def markdown(self):
-        return f"[番剧 ep{self.epid}](https://www.bilibili.com/bangumi/play/ep{self.epid})\n\n"
-
-    def json(self):
-        return {"type": "BangumiCardNode", "epid": self.epid}
-
-
-class MusicCardNode(Node):
-    def __init__(self):
-        self.auid = 0
-
-    def markdown(self):
-        return f"[音乐 au{self.auid}](https://www.bilibili.com/audio/au{self.auid})\n\n"
-
-    def json(self):
-        return {"type": "MusicCardNode", "auid": self.auid}
-
-
-class ShopCardNode(Node):
-    def __init__(self):
-        self.pwid = 0
-
-    def markdown(self):
-        return f"[会员购 {self.pwid}](https://show.bilibili.com/platform/detail.html?id={self.pwid})\n\n"
-
-    def json(self):
-        return {"type": "ShopCardNode", "pwid": self.pwid}
-
-
-class ComicCardNode(Node):
-    def __init__(self):
-        self.mcid = 0
-
-    def markdown(self):
-        return (
-            f"[漫画 mc{self.mcid}](https://manga.bilibili.com/m/detail/mc{self.mcid})\n\n"
-        )
-
-    def json(self):
-        return {"type": "ComicCardNode", "mcid": self.mcid}
-
-
-class LiveCardNode(Node):
-    def __init__(self):
-        self.room_id = 0
-
-    def markdown(self):
-        return f"[直播 {self.room_id}](https://live.bilibili.com/{self.room_id})\n\n"
-
-    def json(self):
-        return {"type": "LiveCardNode", "room_id": self.room_id}
-
-
-class AnchorNode(Node):
-    def __init__(self):
-        self.url = ""
-        self.text = ""
-
-    def markdown(self):
-        text = self.text.replace("[", "\\[")
-        return f"[{text}]({self.url})"
-
-    def json(self):
-        return {"type": "AnchorNode", "url": self.url, "text": self.text}
-
-
-class SeparatorNode(Node):
-    def __init__(self):
-        pass
-
-    def markdown(self):
-        return "\n------\n"
-
-    def json(self):
-        return {"type": "SeparatorNode"}

@@ -45,6 +45,10 @@ async def test_e_User_get_videos():
     return await u.get_videos()
 
 
+async def test_e_User_get_media_list():
+    return await u.get_media_list()
+
+
 async def test_f_User_get_audios():
     return await u.get_audios()
 
@@ -226,7 +230,7 @@ async def test_zk_get_reservation():
 
 
 async def test_zl_name2uid():
-    return await user.name2uid("田所こうじ")
+    return await user.name2uid("田所こうじ", credential=credential)
 
 
 # series_id = None
@@ -276,3 +280,18 @@ async def test_zv_get_self_special_followings():
 
 async def test_zw_get_self_jury_info():
     return await user.get_self_jury_info(credential)
+
+async def test_zx_get_relation():
+    return await u.get_relation()
+
+async def test_zy_get_masterpiece():
+    return await u.get_masterpiece()
+
+async def test_zz_get_login_log():
+    return await user.get_self_login_log(credential)
+
+async def test_zza_get_moral_log():
+    return await user.get_self_moral_log(credential)
+
+async def test_zzb_get_exp_log():
+    return await user.get_self_experience_log(credential)
